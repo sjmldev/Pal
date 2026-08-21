@@ -13,6 +13,7 @@ import com.example.data.model.DailyScrollRecord
 import com.example.data.model.ScrollPlatform
 import com.example.data.preferences.AppPreferences
 import com.example.data.repository.ScrollRepository
+import com.example.receiver.ReminderManager
 import com.example.ui.blocked.BlockedActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -369,6 +370,9 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                     ScrollPlatform.YOUTUBE -> updated.isYoutubeBlocked
                 }
 
+                // Check 10% milestone notifications
+                checkAndTriggerMilestoneNotification(platform, updated)
+
                 if (limitExceeded) {
                     enforceBlockAndRedirect(platform)
                 } else if (preferences.isHudOverlayEnabled) {
@@ -378,6 +382,46 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error recording scroll: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Triggers a calm/slow notification at every 10% progress step (10%, 20%, 30%... 100%).
+     */
+    private fun checkAndTriggerMilestoneNotification(platform: ScrollPlatform, record: DailyScrollRecord) {
+        if (!preferences.isProgressNotificationsEnabled) return
+
+        val count = if (platform == ScrollPlatform.INSTAGRAM) record.instagramCount else record.youtubeCount
+        val limit = if (platform == ScrollPlatform.INSTAGRAM) record.totalInstagramAllowed else record.totalYoutubeAllowed
+        if (limit <= 0) return
+
+        val percent = ((count.toFloat() / limit.toFloat()) * 100).toInt()
+        // Calculate current 10% milestone bracket (e.g., 10, 20, 30... 100)
+        val currentMilestone = (percent / 10) * 10
+
+        if (currentMilestone in 10..100) {
+            val lastNotified = if (platform == ScrollPlatform.INSTAGRAM) {
+                preferences.getLastNotifiedMilestoneIg(record.dateString)
+            } else {
+                preferences.getLastNotifiedMilestoneYt(record.dateString)
+            }
+
+            // Only notify if user has stepped into a new 10% bracket
+            if (currentMilestone > lastNotified) {
+                if (platform == ScrollPlatform.INSTAGRAM) {
+                    preferences.setLastNotifiedMilestoneIg(record.dateString, currentMilestone)
+                } else {
+                    preferences.setLastNotifiedMilestoneYt(record.dateString, currentMilestone)
+                }
+
+                ReminderManager.sendMilestoneProgressNotification(
+                    context = this,
+                    platformName = platform.displayName,
+                    currentCount = count,
+                    limit = limit,
+                    percentage = currentMilestone
+                )
             }
         }
     }

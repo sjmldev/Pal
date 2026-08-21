@@ -6,6 +6,8 @@
     <!-- Notification strings -->
     <string name="notification_channel_reminders">Limit Reminders</string>
     <string name="notification_channel_reminders_desc">Periodic reminders when daily scroll limits have not been set</string>
+    <string name="notification_channel_milestones">Scroll Milestones (Every 10%)</string>
+    <string name="notification_channel_milestones_desc">Gentle low-priority reminders sent every 10% towards your daily scroll limit</string>
     <string name="notification_channel_hud">Active Overlay HUD</string>
     <string name="notification_channel_hud_desc">Shows background service status for live scroll counter</string>
     

@@ -22,20 +22,41 @@ import java.util.Calendar
 object ReminderManager {
     private const val TAG = "ReminderManager"
     const val CHANNEL_ID = "reels_pal_reminders"
+    const val MILESTONES_CHANNEL_ID = "reels_pal_milestones"
     private const val NOTIFICATION_ID = 2001
+    private const val MILESTONE_NOTIFICATION_ID = 2002
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = context.getString(R.string.notification_channel_reminders)
-            val descriptionText = context.getString(R.string.notification_channel_reminders_desc)
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-                enableVibration(true)
-            }
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+
+            // 1. Reminder channel
+            val reminderName = context.getString(R.string.notification_channel_reminders)
+            val reminderDesc = context.getString(R.string.notification_channel_reminders_desc)
+            val reminderChannel = NotificationChannel(
+                CHANNEL_ID,
+                reminderName,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = reminderDesc
+                enableVibration(true)
+            }
+            notificationManager.createNotificationChannel(reminderChannel)
+
+            // 2. Slow / Calm 10% Milestone notification channel (LOW importance = no loud popup, silent in shade)
+            val milestoneName = context.getString(R.string.notification_channel_milestones)
+            val milestoneDesc = context.getString(R.string.notification_channel_milestones_desc)
+            val milestoneChannel = NotificationChannel(
+                MILESTONES_CHANNEL_ID,
+                milestoneName,
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = milestoneDesc
+                enableVibration(false)
+                setShowBadge(true)
+            }
+            notificationManager.createNotificationChannel(milestoneChannel)
         }
     }
 
@@ -152,6 +173,64 @@ object ReminderManager {
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
             Log.d(TAG, "Limit reminder notification sent")
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Notification permission not granted: ${e.message}")
+        }
+    }
+
+    /**
+     * Sends a slow, calm notification for every 10% milestone of the daily limit.
+     * Uses LOW priority so it does not make loud disruptive sounds or popups over videos.
+     */
+    fun sendMilestoneProgressNotification(
+        context: Context,
+        platformName: String,
+        currentCount: Int,
+        limit: Int,
+        percentage: Int
+    ) {
+        val prefs = AppPreferences.getInstance(context)
+        if (!prefs.isProgressNotificationsEnabled) return
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            percentage,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val iconEmoji = if (platformName.contains("Instagram", ignoreCase = true)) "🎬" else "▶️"
+        val title = "$iconEmoji $platformName: $percentage% Limit Reached"
+        val remaining = (limit - currentCount).coerceAtLeast(0)
+        val contentText = "$currentCount of $limit videos watched ($remaining remaining)"
+
+        val messageBody = when {
+            percentage >= 100 -> "⚠️ You have reached 100% of today's $platformName limit ($currentCount/$limit). Take a mindful break!"
+            percentage >= 90 -> "⏳ Almost at limit: 90% reached ($currentCount/$limit). Only $remaining videos left!"
+            percentage >= 70 -> "📊 You've reached $percentage% of your daily $platformName limit ($currentCount/$limit)."
+            percentage >= 50 -> "⚡ Halfway mark: 50% of today's limit used ($currentCount/$limit)."
+            else -> "🌱 $percentage% of daily limit ($currentCount/$limit videos). Stay mindful of your scroll time."
+        }
+
+        val notification = NotificationCompat.Builder(context, MILESTONES_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(contentText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
+            .setPriority(NotificationCompat.PRIORITY_LOW) // Slow/calm low priority
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setProgress(limit, currentCount, false)
+            .setContentIntent(pendingIntent)
+            .setSilent(true) // Calm / no loud chime
+            .setAutoCancel(true)
+            .build()
+
+        try {
+            NotificationManagerCompat.from(context).notify(MILESTONE_NOTIFICATION_ID, notification)
+            Log.d(TAG, "Sent 10% milestone notification for $platformName at $percentage%")
         } catch (e: SecurityException) {
             Log.w(TAG, "Notification permission not granted: ${e.message}")
         }

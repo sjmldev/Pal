@@ -27,12 +27,35 @@ class AppPreferences(context: Context) {
         get() = prefs.getLong(KEY_LAST_REMINDER_TIMESTAMP, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_REMINDER_TIMESTAMP, value).apply()
 
+    var isProgressNotificationsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_PROGRESS_NOTIFS_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_PROGRESS_NOTIFS_ENABLED, value).apply()
+
+    // Tracks which 10% milestone bracket (10, 20, 30... 100) was last notified today for Instagram
+    fun getLastNotifiedMilestoneIg(dateString: String): Int {
+        return prefs.getInt("key_last_milestone_ig_$dateString", 0)
+    }
+
+    fun setLastNotifiedMilestoneIg(dateString: String, milestone: Int) {
+        prefs.edit().putInt("key_last_milestone_ig_$dateString", milestone).apply()
+    }
+
+    // Tracks which 10% milestone bracket (10, 20, 30... 100) was last notified today for YouTube
+    fun getLastNotifiedMilestoneYt(dateString: String): Int {
+        return prefs.getInt("key_last_milestone_yt_$dateString", 0)
+    }
+
+    fun setLastNotifiedMilestoneYt(dateString: String, milestone: Int) {
+        prefs.edit().putInt("key_last_milestone_yt_$dateString", milestone).apply()
+    }
+
     companion object {
         private const val KEY_ONBOARDING_DONE = "key_onboarding_done"
         private const val KEY_REMINDER_INTERVAL = "key_reminder_interval"
         private const val KEY_REMINDER_ENABLED = "key_reminder_enabled"
         private const val KEY_HUD_ENABLED = "key_hud_enabled"
         private const val KEY_LAST_REMINDER_TIMESTAMP = "key_last_reminder_timestamp"
+        private const val KEY_PROGRESS_NOTIFS_ENABLED = "key_progress_notifs_enabled"
 
         @Volatile
         private var INSTANCE: AppPreferences? = null
