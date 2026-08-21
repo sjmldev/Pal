@@ -141,7 +141,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
 
         isInReelsOrShortsSection = true
 
-        // 3. Update HUD immediately
+        // 3. Update HUD immediately if not yet showing
         if (preferences.isHudOverlayEnabled) {
             val count = if (platform == ScrollPlatform.INSTAGRAM) record.instagramCount else record.youtubeCount
             val limit = if (platform == ScrollPlatform.INSTAGRAM) record.totalInstagramAllowed else record.totalYoutubeAllowed
@@ -154,7 +154,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
             return
         }
 
-        // 5. Detect genuine page-to-page video transitions
+        // 5. Detect genuine page-to-page video transitions and update live count
         checkAndCountVideoTransition(platform, rootNode)
     }
 
@@ -162,7 +162,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         return when (platform) {
             ScrollPlatform.INSTAGRAM -> {
                 // Search for Reels viewer indicators in Instagram
-                findNodeByPredicate(rootNode, maxDepth = 12) { node ->
+                findNodeByPredicate(rootNode, maxDepth = 14) { node ->
                     val resId = node.viewIdResourceName?.lowercase() ?: ""
                     val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                     val text = node.text?.toString()?.lowercase() ?: ""
@@ -171,15 +171,18 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                             resId.contains("reel_viewer") ||
                             resId.contains("clips_video_container") ||
                             resId.contains("reel_recycler") ||
-                            resId.contains("like_button") && resId.contains("clips") ||
+                            (resId.contains("like_button") && resId.contains("clips")) ||
                             desc.contains("reel by") ||
                             desc.contains("audio used in reel") ||
-                            resId.contains("video_container") && (desc.contains("reel") || text.contains("reel"))
+                            (resId.contains("video_container") && (desc.contains("reel") || text.contains("reel"))) ||
+                            text.equals("reels", ignoreCase = true) ||
+                            resId.contains("clips_author") ||
+                            resId.contains("reel_tag")
                 }
             }
             ScrollPlatform.YOUTUBE -> {
                 // Search for YouTube Shorts indicators
-                findNodeByPredicate(rootNode, maxDepth = 12) { node ->
+                findNodeByPredicate(rootNode, maxDepth = 14) { node ->
                     val resId = node.viewIdResourceName?.lowercase() ?: ""
                     val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                     val text = node.text?.toString()?.lowercase() ?: ""
@@ -208,7 +211,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                     resId.contains("comments_recycler") ||
                     resId.contains("comment_composer") ||
                     resId.contains("comments_list") ||
-                    resId.contains("bottom_sheet") && text.contains("comments", ignoreCase = true) ||
+                    (resId.contains("bottom_sheet") && text.contains("comments", ignoreCase = true)) ||
                     desc.contains("close comments", ignoreCase = true) ||
                     text.contains("add a comment", ignoreCase = true) ||
                     text.contains("top comments", ignoreCase = true)
@@ -220,8 +223,8 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         rootNode: AccessibilityNodeInfo
     ) {
         val now = System.currentTimeMillis()
-        // Debounce at least 800ms between transitions to prevent double-count on bouncy scrolls
-        if (now - lastCountTimestamp < 800) return
+        // Debounce 600ms between transitions to prevent double-count while allowing snappy scrolls
+        if (now - lastCountTimestamp < 600) return
 
         val activeKey = extractActiveVideoIdentifier(platform, rootNode)
         if (activeKey.isBlank()) return
@@ -257,47 +260,110 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         rootNode: AccessibilityNodeInfo
     ): String {
         val identifiers = StringBuilder()
+        val textSnippets = mutableListOf<String>()
 
-        traverseNodes(rootNode, maxDepth = 12) { node ->
-            val resId = node.viewIdResourceName ?: ""
+        traverseNodes(rootNode, maxDepth = 14) { node ->
+            val resId = node.viewIdResourceName?.lowercase() ?: ""
             val text = node.text?.toString()?.trim() ?: ""
             val desc = node.contentDescription?.toString()?.trim() ?: ""
 
-            // Capture author tag, audio title, or caption snippet
             when (platform) {
                 ScrollPlatform.INSTAGRAM -> {
-                    if (resId.contains("user_name") || resId.contains("audio_title") ||
-                        resId.contains("caption") || resId.contains("clips_author_name")
+                    // 1. Author and handle matching
+                    if (resId.contains("user_name") || resId.contains("username") ||
+                        resId.contains("profile_name") || resId.contains("author") ||
+                        resId.contains("clips_author_name") || resId.contains("row_feed_photo_profile_name") ||
+                        resId.contains("owner_name")
                     ) {
-                        if (text.isNotEmpty()) identifiers.append(text).append("|")
-                    } else if (desc.startsWith("Reel by", ignoreCase = true) || desc.startsWith("Photo by", ignoreCase = true)) {
-                        identifiers.append(desc).append("|")
+                        if (text.isNotEmpty()) identifiers.append("user:").append(text).append("|")
+                    }
+                    // 2. Audio title matching
+                    else if (resId.contains("audio_title") || resId.contains("music_title") ||
+                        resId.contains("sound_title") || resId.contains("audio_track")
+                    ) {
+                        if (text.isNotEmpty()) identifiers.append("audio:").append(text).append("|")
+                    }
+                    // 3. Caption matching
+                    else if (resId.contains("caption") || resId.contains("clips_caption") ||
+                        resId.contains("caption_text_view")
+                    ) {
+                        if (text.isNotEmpty()) identifiers.append("cap:").append(text.take(30)).append("|")
+                    }
+                    // 4. Accessibility descriptions
+                    if (desc.startsWith("Reel by", ignoreCase = true) ||
+                        desc.startsWith("Photo by", ignoreCase = true) ||
+                        desc.startsWith("Video by", ignoreCase = true) ||
+                        desc.contains("audio used in reel", ignoreCase = true)
+                    ) {
+                        identifiers.append("desc:").append(desc).append("|")
+                    }
+
+                    // 5. General text fallback for unique reel labels
+                    if (text.isNotEmpty() && text.length in 2..50 &&
+                        !text.equals("Reels", ignoreCase = true) &&
+                        !text.equals("Follow", ignoreCase = true) &&
+                        !text.equals("Following", ignoreCase = true) &&
+                        !text.equals("Like", ignoreCase = true) &&
+                        !text.equals("Comment", ignoreCase = true) &&
+                        !text.equals("Share", ignoreCase = true)
+                    ) {
+                        textSnippets.add(text)
                     }
                 }
                 ScrollPlatform.YOUTUBE -> {
                     if (resId.contains("channel_name") || resId.contains("video_title") ||
-                        resId.contains("sound_title") || resId.contains("title_text")
+                        resId.contains("sound_title") || resId.contains("title_text") ||
+                        resId.contains("owner_name")
                     ) {
-                        if (text.isNotEmpty()) identifiers.append(text).append("|")
-                    } else if (desc.contains("Short by", ignoreCase = true) || desc.contains("Video", ignoreCase = true)) {
-                        identifiers.append(desc).append("|")
+                        if (text.isNotEmpty()) identifiers.append("yt:").append(text).append("|")
+                    }
+                    if (desc.contains("Short by", ignoreCase = true) || desc.contains("Video", ignoreCase = true)) {
+                        identifiers.append("desc:").append(desc).append("|")
+                    }
+                    if (text.isNotEmpty() && text.length in 2..50 &&
+                        !text.equals("Shorts", ignoreCase = true) &&
+                        !text.equals("Subscribe", ignoreCase = true) &&
+                        !text.equals("Subscribed", ignoreCase = true)
+                    ) {
+                        textSnippets.add(text)
                     }
                 }
             }
         }
 
-        return identifiers.toString().trim()
+        if (identifiers.isNotEmpty()) {
+            return identifiers.toString()
+        }
+
+        // Fallback to top distinctive text snippets on the screen
+        return if (textSnippets.isNotEmpty()) {
+            textSnippets.take(3).joinToString(separator = "|")
+        } else {
+            ""
+        }
     }
 
     private fun onScrollDetected(platform: ScrollPlatform, identifier: String) {
+        val record = currentRecord ?: return
+
+        // 1. Live Instant UI update on Main Thread
+        val currentCount = if (platform == ScrollPlatform.INSTAGRAM) record.instagramCount else record.youtubeCount
+        val limit = if (platform == ScrollPlatform.INSTAGRAM) record.totalInstagramAllowed else record.totalYoutubeAllowed
+        val optimisticCount = currentCount + 1
+
+        if (preferences.isHudOverlayEnabled) {
+            hudManager.showOrUpdateHud(platform, optimisticCount, limit)
+        }
+
+        // 2. Persist to Database asynchronously and enforce limits
         serviceScope.launch {
             try {
                 val updated = repository.incrementScroll(platform, identifier)
                 currentRecord = updated
-                Log.d(TAG, "Scroll counted for ${platform.displayName}! New count: " +
+                Log.d(TAG, "Scroll counted for ${platform.displayName}! Realtime count: " +
                         if (platform == ScrollPlatform.INSTAGRAM) updated.instagramCount else updated.youtubeCount)
 
-                // Check if limit exceeded immediately after increment
+                // Check if limit reached or exceeded
                 val limitExceeded = when (platform) {
                     ScrollPlatform.INSTAGRAM -> updated.isInstagramBlocked
                     ScrollPlatform.YOUTUBE -> updated.isYoutubeBlocked
@@ -307,8 +373,8 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                     enforceBlockAndRedirect(platform)
                 } else if (preferences.isHudOverlayEnabled) {
                     val count = if (platform == ScrollPlatform.INSTAGRAM) updated.instagramCount else updated.youtubeCount
-                    val limit = if (platform == ScrollPlatform.INSTAGRAM) updated.totalInstagramAllowed else updated.totalYoutubeAllowed
-                    hudManager.showOrUpdateHud(platform, count, limit)
+                    val finalLimit = if (platform == ScrollPlatform.INSTAGRAM) updated.totalInstagramAllowed else updated.totalYoutubeAllowed
+                    hudManager.showOrUpdateHud(platform, count, finalLimit)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error recording scroll: ${e.message}", e)

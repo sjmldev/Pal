@@ -9,11 +9,9 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.ImageView
 import android.widget.TextView
 import com.example.data.model.ScrollPlatform
 import kotlin.math.abs
@@ -27,6 +25,8 @@ class HudOverlayManager private constructor(private val context: Context) {
     private var overlayView: View? = null
     private var isOverlayAttached = false
     private var currentPlatform: ScrollPlatform? = null
+    private var lastDisplayedCount: Int = -1
+    private var lastDisplayedLimit: Int = -1
 
     // Track touch positions for dragging
     private var initialX = 0
@@ -49,7 +49,8 @@ class HudOverlayManager private constructor(private val context: Context) {
             type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -78,6 +79,10 @@ class HudOverlayManager private constructor(private val context: Context) {
                     windowManager.addView(overlayView, layoutParams)
                     isOverlayAttached = true
                     Log.d(TAG, "HUD attached for platform: ${platform.displayName}")
+                } else if (isOverlayAttached && overlayView != null) {
+                    overlayView?.requestLayout()
+                    overlayView?.invalidate()
+                    windowManager.updateViewLayout(overlayView, layoutParams)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error displaying HUD overlay: ${e.message}", e)
@@ -92,6 +97,8 @@ class HudOverlayManager private constructor(private val context: Context) {
                     windowManager.removeView(overlayView)
                     isOverlayAttached = false
                     currentPlatform = null
+                    lastDisplayedCount = -1
+                    lastDisplayedLimit = -1
                     Log.d(TAG, "HUD overlay removed")
                 }
             } catch (e: Exception) {
@@ -131,7 +138,7 @@ class HudOverlayManager private constructor(private val context: Context) {
             }
         }
 
-        // Text label: "📸 14 / 30"
+        // Text label: "📸 Reels: 0 / 30"
         val textView = TextView(context).apply {
             id = View.generateViewId()
             textSize = 13f
@@ -197,20 +204,43 @@ class HudOverlayManager private constructor(private val context: Context) {
         val dot = root.getChildAt(0)
         val text = root.getChildAt(1) as? TextView ?: return
 
-        val icon = if (platform == ScrollPlatform.INSTAGRAM) "📸" else "▶️"
+        val icon = if (platform == ScrollPlatform.INSTAGRAM) "🎬" else "▶️"
         val name = if (platform == ScrollPlatform.INSTAGRAM) "Reels" else "Shorts"
+
+        val countChanged = (count != lastDisplayedCount && lastDisplayedCount != -1)
+        lastDisplayedCount = count
+        lastDisplayedLimit = limit
 
         text.text = "$icon $name: $count / $limit"
 
         // Update dot color based on remaining limit
         val percent = if (limit > 0) (count.toFloat() / limit) else 0f
         val dotColor = when {
-            percent >= 1.0f -> 0xFFFF5252.toInt() // Red (blocked/reached)
+            percent >= 1.0f -> 0xFFFF5252.toInt() // Red (reached/exceeded)
             percent >= 0.8f -> 0xFFFFD740.toInt() // Yellow (warning)
             else -> 0xFF00E5FF.toInt()           // Cyan (safe)
         }
 
         (dot.background as? android.graphics.drawable.GradientDrawable)?.setColor(dotColor)
+
+        // Live pulse animation when count increments in real-time
+        if (countChanged) {
+            text.animate()
+                .scaleX(1.18f)
+                .scaleY(1.18f)
+                .setDuration(90)
+                .withEndAction {
+                    text.animate()
+                        .scaleX(1.0f)
+                        .scaleY(1.0f)
+                        .setDuration(90)
+                        .start()
+                }
+                .start()
+        }
+
+        root.requestLayout()
+        root.invalidate()
     }
 
     private fun dpToPx(dp: Int): Int {
