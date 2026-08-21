@@ -2,9 +2,7 @@ package com.example.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.content.Context
 import android.content.Intent
-import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -15,12 +13,15 @@ import com.example.data.model.ScrollPlatform
 import com.example.data.preferences.AppPreferences
 import com.example.data.repository.ScrollRepository
 import com.example.receiver.ReminderManager
+import com.example.service.extractor.CandidateVideo
+import com.example.service.extractor.InstagramIdentityExtractor
+import com.example.service.extractor.VideoIdentityExtractor
+import com.example.service.extractor.YouTubeIdentityExtractor
 import com.example.ui.blocked.BlockedActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,13 +29,13 @@ import kotlinx.coroutines.sync.withLock
 /**
  * AccessibilityService that monitors Instagram Reels and YouTube Shorts usage.
  *
- * Implements a strict, guaranteed, leak-proof de-duplication architecture:
- * 1. Single serialized execution pipeline via Kotlin Mutex & Single-Threaded Processing.
- * 2. Stable Canonical Video Identity extraction (focused on the on-screen active ViewPager center item).
- * 3. Exact & Semantic token/substring de-duplication against `lastCountedVideoId` and an LRU Ring Buffer.
- * 4. Physical gesture cooldown safety net (400ms).
- * 5. Immediate zero-latency HUD update + asynchronous Room DB persistence.
- * 6. Explicit audit logging for every evaluation decision.
+ * Employs a strategy-pattern architecture for platform extraction:
+ * 1. An event handler `when` block branching on the event package name.
+ * 2. Separate strategy classes ([InstagramIdentityExtractor] and [YouTubeIdentityExtractor])
+ *    implementing [VideoIdentityExtractor] to derive stable video identities.
+ * 3. Safe viewport bounds filtering and multi-token canonical identity formulation.
+ * 4. Serialized atomic de-duplication pipeline via Kotlin Coroutine Mutex.
+ * 5. Instant zero-latency HUD update and asynchronous Room DB persistence.
  */
 class ReelsPalAccessibilityService : AccessibilityService() {
 
@@ -42,6 +43,10 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     private lateinit var repository: ScrollRepository
     private lateinit var preferences: AppPreferences
     private lateinit var hudManager: HudOverlayManager
+
+    // Strategy extractors for supported short-video platforms
+    private val instagramExtractor: VideoIdentityExtractor = InstagramIdentityExtractor()
+    private val youtubeExtractor: VideoIdentityExtractor = YouTubeIdentityExtractor()
 
     private var currentRecord: DailyScrollRecord? = null
     private var activePlatform: ScrollPlatform? = null
@@ -56,13 +61,15 @@ class ReelsPalAccessibilityService : AccessibilityService() {
 
     // --- HARD DE-DUPLICATION GUARANTEE ENGINE ---
     private val deduplicationMutex = Mutex()
+    private var lastCountedPlatform: ScrollPlatform? = null
     private var lastCountedVideoId: String? = null
     private var lastCountedAuthor: String? = null
+    private var lastCountedTokens: Set<String> = emptySet()
     private var lastCountTimestamp: Long = 0L
     private val recentCountedVideoMap = LinkedHashMap<String, Long>()
 
     // Safety guards
-    private val MIN_SWIPE_COOLDOWN_MS = 400L             // Minimum physical swipe gesture time
+    private val MIN_SWIPE_COOLDOWN_MS = 400L             // Physical gesture minimum time
     private val RECENT_HISTORY_EXPIRY_MS = 60_000L         // 60 seconds memory buffer
     private val MAX_HISTORY_BUFFER_SIZE = 50
 
@@ -128,85 +135,102 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         Log.d(TAG, "ReelsPal Accessibility Service connected")
     }
 
+    /**
+     * Refactored Accessibility event handler branching on package name via a clean `when` block.
+     */
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
 
-        val platform = when (packageName) {
-            ScrollPlatform.INSTAGRAM.packageName -> ScrollPlatform.INSTAGRAM
-            ScrollPlatform.YOUTUBE.packageName -> ScrollPlatform.YOUTUBE
+        when (packageName) {
+            ScrollPlatform.INSTAGRAM.packageName -> {
+                handleTargetPlatformEvent(
+                    platform = ScrollPlatform.INSTAGRAM,
+                    extractor = instagramExtractor,
+                    event = event
+                )
+            }
+            ScrollPlatform.YOUTUBE.packageName -> {
+                handleTargetPlatformEvent(
+                    platform = ScrollPlatform.YOUTUBE,
+                    extractor = youtubeExtractor,
+                    event = event
+                )
+            }
             else -> {
                 handleExitedTargetApp()
-                return
             }
-        }
-
-        activePlatform = platform
-
-        try {
-            val rootNode = rootInActiveWindow ?: return
-            handleTargetAppEvent(platform, rootNode, event)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling accessibility event: ${e.message}", e)
-        }
-    }
-
-    private fun handleTargetAppEvent(
-        platform: ScrollPlatform,
-        rootNode: AccessibilityNodeInfo,
-        event: AccessibilityEvent
-    ) {
-        val (isBlocked, count, limit) = synchronized(this) {
-            val count = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgCount else inMemoryYtCount
-            val limit = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgLimit else inMemoryYtLimit
-            val blocked = count >= limit
-            Triple(blocked, count, limit)
-        }
-
-        // 1. Check if the app is currently BLOCKED
-        if (isBlocked) {
-            val isInsideTarget = isInsideShortsOrReels(platform, rootNode)
-            if (isInsideTarget || event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-                enforceBlockAndRedirect(platform)
-                return
-            }
-        }
-
-        // 2. Detect if user is specifically inside Reels or Shorts viewer
-        val inShortsOrReels = isInsideShortsOrReels(platform, rootNode)
-
-        if (!inShortsOrReels) {
-            if (isInReelsOrShortsSection) {
-                isInReelsOrShortsSection = false
-                hudManager.hideHud()
-            }
-            return
-        }
-
-        isInReelsOrShortsSection = true
-
-        // 3. Ensure HUD is displayed when entering Reels section with live in-memory count
-        if (preferences.isHudOverlayEnabled) {
-            hudManager.showOrUpdateHud(platform, count, limit)
-        }
-
-        // 4. Ignore all events when comments sheet/dialogue is open
-        if (isCommentsSectionOpen(platform, rootNode)) {
-            return
-        }
-
-        // 5. Extract stable on-screen video identity
-        val candidate = extractActiveVideoIdentity(platform, rootNode) ?: return
-
-        // 6. Execute atomic, serialized de-duplication evaluation
-        serviceScope.launch {
-            processVideoTransitionSerialized(platform, candidate)
         }
     }
 
     /**
-     * SERIALIZED SINGLE ENTRY POINT: Evaluates whether candidate represents a genuinely
-     * new, uncounted video, and guarantees that exactly 1 count is added — never duplicates.
+     * Common event processing pipeline parameterized by target platform and strategy extractor.
+     */
+    private fun handleTargetPlatformEvent(
+        platform: ScrollPlatform,
+        extractor: VideoIdentityExtractor,
+        event: AccessibilityEvent
+    ) {
+        activePlatform = platform
+
+        try {
+            val rootNode = rootInActiveWindow ?: return
+
+            val (isBlocked, count, limit) = synchronized(this) {
+                val currentCount = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgCount else inMemoryYtCount
+                val currentLimit = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgLimit else inMemoryYtLimit
+                val blocked = currentCount >= currentLimit
+                Triple(blocked, currentCount, currentLimit)
+            }
+
+            // 1. Check if the app is currently BLOCKED
+            if (isBlocked) {
+                val isInsideTarget = isInsideShortsOrReels(platform, rootNode)
+                if (isInsideTarget || event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                    enforceBlockAndRedirect(platform)
+                    return
+                }
+            }
+
+            // 2. Detect if user is specifically inside Reels or Shorts viewer
+            val inShortsOrReels = isInsideShortsOrReels(platform, rootNode)
+
+            if (!inShortsOrReels) {
+                if (isInReelsOrShortsSection) {
+                    isInReelsOrShortsSection = false
+                    hudManager.hideHud()
+                }
+                return
+            }
+
+            isInReelsOrShortsSection = true
+
+            // 3. Ensure HUD is displayed when entering Reels section with live in-memory count
+            if (preferences.isHudOverlayEnabled) {
+                hudManager.showOrUpdateHud(platform, count, limit)
+            }
+
+            // 4. Ignore all events when comments sheet/dialogue is open
+            if (isCommentsSectionOpen(platform, rootNode)) {
+                if (DEBUG_LOGS) Log.v(TAG, "[$platform] Comments section is open — event ignored.")
+                return
+            }
+
+            // 5. Extract platform-specific stable on-screen video identity using the strategy extractor
+            val candidate = extractor.extractIdentity(this, rootNode) ?: return
+
+            // 6. Execute atomic, serialized de-duplication evaluation
+            serviceScope.launch {
+                processVideoTransitionSerialized(platform, candidate)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling accessibility event for $platform: ${e.message}", e)
+        }
+    }
+
+    /**
+     * SERIALIZED SINGLE ENTRY POINT: Evaluates candidate against existing state.
+     * Guarantees that exactly 1 count is added per unique video watched.
      */
     private suspend fun processVideoTransitionSerialized(
         platform: ScrollPlatform,
@@ -218,9 +242,18 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         var limit = 0
         var limitExceeded = false
         var dateStr = ""
+        val auditTag = if (platform == ScrollPlatform.INSTAGRAM) "[INSTAGRAM REEL AUDIT]" else "[YOUTUBE SHORT AUDIT]"
 
         deduplicationMutex.withLock {
-            // A. Clean expired entries from recent history (>60s)
+            // A. Reset platform context if switched apps
+            if (lastCountedPlatform != platform) {
+                lastCountedPlatform = platform
+                lastCountedVideoId = null
+                lastCountedAuthor = null
+                lastCountedTokens = emptySet()
+            }
+
+            // B. Clean expired entries from recent history (>60s)
             val iterator = recentCountedVideoMap.entries.iterator()
             while (iterator.hasNext()) {
                 val entry = iterator.next()
@@ -229,75 +262,92 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // B. Initial landing video check (when entering viewer for the first time)
+            // C. Initial landing video check (when entering viewer for the first time)
             val currentLastId = lastCountedVideoId
             if (currentLastId == null) {
                 lastCountedVideoId = candidate.canonicalId
                 lastCountedAuthor = candidate.primaryAuthor.ifEmpty { null }
+                lastCountedTokens = candidate.tokens
                 recentCountedVideoMap[candidate.canonicalId] = now
                 if (DEBUG_LOGS) {
-                    Log.d(TAG, "[DEDUPLICATION AUDIT] INITIAL_LANDING: Registered ID='${candidate.canonicalId}' (Count unaffected)")
+                    Log.d(TAG, "$auditTag INITIAL_LANDING: Registered ID='${candidate.canonicalId}', Author='${candidate.primaryAuthor}' (Count unchanged)")
                 }
                 return
             }
 
-            // C. Compare against last counted video ID
+            // D. Compare against last counted video ID (Exact match)
             if (candidate.canonicalId == currentLastId) {
                 if (DEBUG_LOGS) {
-                    Log.v(TAG, "[DEDUPLICATION AUDIT] SKIPPED (Exact Match with Current): '${candidate.canonicalId}'")
+                    Log.v(TAG, "$auditTag SKIPPED (Exact ID Match): '${candidate.canonicalId}'")
                 }
                 return
             }
 
-            // D. Substring / Progressive-loading match with current video
+            // E. Substring / Progressive-loading match with current video
             if (currentLastId.contains(candidate.canonicalId) || candidate.canonicalId.contains(currentLastId)) {
                 if (DEBUG_LOGS) {
-                    Log.v(TAG, "[DEDUPLICATION AUDIT] SKIPPED (Progressive Loading / Substring Match): Current='$currentLastId', Candidate='${candidate.canonicalId}'")
+                    Log.v(TAG, "$auditTag SKIPPED (Substring/Progressive Loading Match): Current='$currentLastId', Candidate='${candidate.canonicalId}'")
                 }
-                // Update to the more detailed ID representation without incrementing
+                // Enrich active ID if candidate has more complete info without incrementing count
                 if (candidate.canonicalId.length > currentLastId.length) {
                     lastCountedVideoId = candidate.canonicalId
                     if (candidate.primaryAuthor.isNotEmpty()) {
                         lastCountedAuthor = candidate.primaryAuthor
                     }
+                    lastCountedTokens = candidate.tokens
                     recentCountedVideoMap[candidate.canonicalId] = now
                 }
                 return
             }
 
-            // E. Author match (same author on screen means same reel / profile reel)
+            // F. Author match: If the primary author is identical, it is the same video (or author profile)
             val currentAuthor = lastCountedAuthor
-            if (currentAuthor != null && candidate.primaryAuthor.isNotEmpty() && currentAuthor == candidate.primaryAuthor) {
+            if (currentAuthor != null && candidate.primaryAuthor.isNotEmpty() && currentAuthor.equals(candidate.primaryAuthor, ignoreCase = true)) {
                 if (DEBUG_LOGS) {
-                    Log.v(TAG, "[DEDUPLICATION AUDIT] SKIPPED (Matching Author): '$currentAuthor'")
+                    Log.v(TAG, "$auditTag SKIPPED (Same Author on Screen): '$currentAuthor'")
                 }
+                // Update tokens to active set
+                lastCountedTokens = lastCountedTokens + candidate.tokens
                 return
             }
 
-            // F. Check if candidate ID or author exists in recent history buffer
+            // G. Token Set Overlap check: If 2+ secondary tokens match (e.g. caption, audio, desc), it's the same video
+            if (lastCountedTokens.isNotEmpty() && candidate.tokens.isNotEmpty()) {
+                val intersection = lastCountedTokens.intersect(candidate.tokens)
+                if (intersection.size >= 2 || (intersection.isNotEmpty() && (lastCountedTokens.size <= 2 || candidate.tokens.size <= 2))) {
+                    if (DEBUG_LOGS) {
+                        Log.v(TAG, "$auditTag SKIPPED (Token Overlap Match: ${intersection.joinToString()}): Candidate='${candidate.canonicalId}'")
+                    }
+                    return
+                }
+            }
+
+            // H. Check if candidate ID or author exists in recent history buffer (prevents back-and-forth settlement)
             if (isInRecentHistory(candidate)) {
                 if (DEBUG_LOGS) {
-                    Log.d(TAG, "[DEDUPLICATION AUDIT] SKIPPED (Found in Recent History): '${candidate.canonicalId}'")
+                    Log.d(TAG, "$auditTag SKIPPED (Found in Recent 60s History): '${candidate.canonicalId}'")
                 }
                 lastCountedVideoId = candidate.canonicalId
                 if (candidate.primaryAuthor.isNotEmpty()) {
                     lastCountedAuthor = candidate.primaryAuthor
                 }
+                lastCountedTokens = candidate.tokens
                 return
             }
 
-            // G. Hardware / Gesture cooldown safety guard (minimum 400ms)
+            // I. Hardware / Gesture cooldown safety guard (minimum 400ms)
             val timeSinceLastCount = now - lastCountTimestamp
             if (timeSinceLastCount < MIN_SWIPE_COOLDOWN_MS) {
                 if (DEBUG_LOGS) {
-                    Log.d(TAG, "[DEDUPLICATION AUDIT] SKIPPED (Within Minimum Gesture Cooldown): ${timeSinceLastCount}ms < ${MIN_SWIPE_COOLDOWN_MS}ms")
+                    Log.d(TAG, "$auditTag SKIPPED (Within Cooldown): ${timeSinceLastCount}ms < ${MIN_SWIPE_COOLDOWN_MS}ms")
                 }
                 return
             }
 
-            // --- ALL DE-DUPLICATION CHECKS PASSED: GENUINE NEW VIDEO CONFIRMED ---
+            // --- ALL DE-DUPLICATION CHECKS PASSED: GENUINE NEW VIDEO CONFIRMED (EXACTLY 1 COUNT) ---
             lastCountedVideoId = candidate.canonicalId
             lastCountedAuthor = candidate.primaryAuthor.ifEmpty { null }
+            lastCountedTokens = candidate.tokens
             lastCountTimestamp = now
             recentCountedVideoMap[candidate.canonicalId] = now
 
@@ -326,7 +376,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         }
 
         if (shouldCount) {
-            Log.i(TAG, "[DEDUPLICATION AUDIT] *** COUNTED NEW VIDEO *** Platform=${platform.displayName}, ID='${candidate.canonicalId}', Total=$newCount/$limit, TimeSinceLast=${now - lastCountTimestamp}ms")
+            Log.i(TAG, "$auditTag *** COUNTED NEW VIDEO *** ID='${candidate.canonicalId}', Author='${candidate.primaryAuthor}', NewTotal=$newCount/$limit, Interval=${now - lastCountTimestamp}ms")
 
             // 1. Live Instant UI update on Main Thread immediately for the new video
             if (preferences.isHudOverlayEnabled) {
@@ -368,6 +418,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         for (historicalId in recentCountedVideoMap.keys) {
             if (historicalId == candidate.canonicalId ||
                 (candidate.primaryAuthor.isNotEmpty() && historicalId.contains("u:" + candidate.primaryAuthor)) ||
+                (candidate.primaryAuthor.isNotEmpty() && historicalId.contains("c:" + candidate.primaryAuthor)) ||
                 historicalId.contains(candidate.canonicalId) ||
                 candidate.canonicalId.contains(historicalId)
             ) {
@@ -375,150 +426,6 @@ class ReelsPalAccessibilityService : AccessibilityService() {
             }
         }
         return false
-    }
-
-    /**
-     * Extracts a stable identifier strictly from the active on-screen video.
-     * Checks on-screen viewport bounds to discard preloaded/off-screen cached pages.
-     */
-    private fun extractActiveVideoIdentity(
-        platform: ScrollPlatform,
-        rootNode: AccessibilityNodeInfo
-    ): CandidateVideo? {
-        val windowRect = Rect()
-        rootNode.getBoundsInScreen(windowRect)
-        val windowHeight = if (windowRect.height() > 0) windowRect.height() else 2400
-
-        var primaryAuthor = ""
-        val tokenSet = mutableSetOf<String>()
-        val keyParts = StringBuilder()
-
-        val prefix = if (platform == ScrollPlatform.INSTAGRAM) "ig:" else "yt:"
-        keyParts.append(prefix)
-
-        val nodeRect = Rect()
-
-        traverseNodes(rootNode, maxDepth = 14) { node ->
-            node.getBoundsInScreen(nodeRect)
-
-            // Discard off-screen pre-loaded nodes from adjacent ViewPager pages
-            if (nodeRect.bottom <= windowRect.top || nodeRect.top >= windowRect.bottom) {
-                return@traverseNodes
-            }
-
-            val resId = node.viewIdResourceName?.lowercase() ?: ""
-            val text = node.text?.toString()?.trim() ?: ""
-            val desc = node.contentDescription?.toString()?.trim() ?: ""
-
-            when (platform) {
-                ScrollPlatform.INSTAGRAM -> {
-                    // 1. Author / Creator Handle (Primary Anchor)
-                    if (resId.contains("user_name") || resId.contains("username") ||
-                        resId.contains("profile_name") || resId.contains("author") ||
-                        resId.contains("clips_author_name") || resId.contains("row_feed_photo_profile_name") ||
-                        resId.contains("owner_name")
-                    ) {
-                        if (text.isNotEmpty() && !isIgnoredUiText(text)) {
-                            val author = text.lowercase()
-                            if (primaryAuthor.isEmpty()) primaryAuthor = author
-                            keyParts.append("u:").append(author).append("|")
-                            tokenSet.add("u:$author")
-                        }
-                    }
-                    // 2. Audio Title / Music
-                    else if (resId.contains("audio_title") || resId.contains("music_title") ||
-                        resId.contains("sound_title") || resId.contains("audio_track")
-                    ) {
-                        if (text.isNotEmpty() && !isIgnoredUiText(text)) {
-                            val audio = text.lowercase().take(30)
-                            keyParts.append("a:").append(audio).append("|")
-                            tokenSet.add("a:$audio")
-                        }
-                    }
-                    // 3. Caption text
-                    else if (resId.contains("caption") || resId.contains("clips_caption") ||
-                        resId.contains("caption_text_view")
-                    ) {
-                        if (text.isNotEmpty() && text.length >= 4 && !isIgnoredUiText(text)) {
-                            val cap = text.lowercase().take(25)
-                            keyParts.append("c:").append(cap).append("|")
-                            tokenSet.add("c:$cap")
-                        }
-                    }
-                    // 4. Accessibility Description
-                    if (desc.startsWith("Reel by", ignoreCase = true) ||
-                        desc.startsWith("Photo by", ignoreCase = true) ||
-                        desc.startsWith("Video by", ignoreCase = true) ||
-                        desc.contains("audio used in reel", ignoreCase = true)
-                    ) {
-                        val d = desc.lowercase().take(40)
-                        keyParts.append("d:").append(d).append("|")
-                        tokenSet.add("d:$d")
-                    }
-                    // 5. Stable on-screen text snippet
-                    if (text.isNotEmpty() && text.length in 3..40 && !isIgnoredUiText(text)) {
-                        tokenSet.add("t:" + text.lowercase())
-                    }
-                }
-                ScrollPlatform.YOUTUBE -> {
-                    if (resId.contains("channel_name") || resId.contains("video_title") ||
-                        resId.contains("sound_title") || resId.contains("title_text") ||
-                        resId.contains("owner_name")
-                    ) {
-                        if (text.isNotEmpty() && !isIgnoredUiText(text)) {
-                            val channel = text.lowercase().take(30)
-                            if (primaryAuthor.isEmpty() && resId.contains("channel_name")) {
-                                primaryAuthor = channel
-                            }
-                            keyParts.append("c:").append(channel).append("|")
-                            tokenSet.add("c:$channel")
-                        }
-                    }
-                    if (desc.contains("Short by", ignoreCase = true) || desc.contains("Video", ignoreCase = true)) {
-                        val d = desc.lowercase().take(40)
-                        keyParts.append("d:").append(d).append("|")
-                        tokenSet.add("d:$d")
-                    }
-                    if (text.isNotEmpty() && text.length in 3..40 && !isIgnoredUiText(text)) {
-                        tokenSet.add("t:" + text.lowercase())
-                    }
-                }
-            }
-        }
-
-        val canonical = if (keyParts.length > prefix.length) {
-            keyParts.toString()
-        } else if (tokenSet.isNotEmpty()) {
-            prefix + tokenSet.take(2).joinToString(separator = "|")
-        } else {
-            ""
-        }
-
-        if (canonical.isEmpty()) return null
-
-        return CandidateVideo(
-            platform = platform,
-            primaryAuthor = primaryAuthor,
-            canonicalId = canonical
-        )
-    }
-
-    private fun isIgnoredUiText(rawText: String): Boolean {
-        val text = rawText.trim().lowercase()
-        if (text.isEmpty()) return true
-
-        // Filter out dynamic numeric counters (views, likes, timestamps, counts)
-        if (text.matches(Regex("^[0-9.,kKmMbB: ]+$"))) return true
-        if (text.matches(Regex("^[0-9]+.*(likes?|views?|comments?|shares?|k|m|b)$"))) return true
-
-        // Filter generic action buttons and UI boilerplate
-        val ignoredTokens = setOf(
-            "reels", "shorts", "follow", "following", "like", "liked", "dislike",
-            "comment", "comments", "share", "remix", "subscribe", "subscribed",
-            "save", "saved", "more", "audio", "original audio", "sponsored",
-            "suggested for you", "use audio", "watch again", "reply", "see translation"
-        )
-        return ignoredTokens.contains(text)
     }
 
     private fun isInsideShortsOrReels(platform: ScrollPlatform, rootNode: AccessibilityNodeInfo): Boolean {
@@ -533,6 +440,8 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                             resId.contains("reel_viewer") ||
                             resId.contains("clips_video_container") ||
                             resId.contains("reel_recycler") ||
+                            resId.contains("clips_root") ||
+                            resId.contains("clips_item_root") ||
                             (resId.contains("like_button") && resId.contains("clips")) ||
                             desc.contains("reel by") ||
                             desc.contains("audio used in reel") ||
@@ -580,7 +489,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Triggers a calm/slow notification at every 10% progress step (10%, 20%, 30%... 100%).
+     * Triggers a notification at every 10% progress step (10%, 20%, 30%... 100%).
      */
     private fun checkAndTriggerMilestoneNotification(
         platform: ScrollPlatform,
@@ -646,8 +555,6 @@ class ReelsPalAccessibilityService : AccessibilityService() {
             hudManager.hideHud()
         }
         activePlatform = null
-        // Note: We deliberately preserve recentCountedVideoMap and lastCountedVideoId
-        // so that briefly task-switching back to the same video does NOT trigger a duplicate count.
     }
 
     private fun findNodeByPredicate(
@@ -668,20 +575,6 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun traverseNodes(
-        node: AccessibilityNodeInfo?,
-        depth: Int = 0,
-        maxDepth: Int = 10,
-        visitor: (AccessibilityNodeInfo) -> Unit
-    ) {
-        if (node == null || depth > maxDepth) return
-        visitor(node)
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            traverseNodes(child, depth + 1, maxDepth, visitor)
-        }
-    }
-
     override fun onInterrupt() {
         Log.w(TAG, "ReelsPal Accessibility Service interrupted")
         hudManager.hideHud()
@@ -694,18 +587,9 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /**
-     * Immutable data representation of an extracted candidate video.
-     */
-    data class CandidateVideo(
-        val platform: ScrollPlatform,
-        val primaryAuthor: String,
-        val canonicalId: String
-    )
-
     companion object {
         private const val TAG = "ReelsPalAccessibility"
-        private const val DEBUG_LOGS = true // Enabled for live deduplication audit
+        private const val DEBUG_LOGS = true
 
         @Volatile
         var instance: ReelsPalAccessibilityService? = null
