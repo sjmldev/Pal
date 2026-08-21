@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Shield / Reel Container with Gradient -->
+    <path
+        android:pathData="M54,24 C68,24 78,28 78,28 C78,48 74,70 54,84 C34,70 30,48 30,28 C30,28 40,24 54,24 Z"
+        android:strokeWidth="2.5">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30"
+                android:startY="24"
+                android:endX="78"
+                android:endY="84"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#7C4DFF" />
+                <item android:offset="0.5" android:color="#E040FB" />
+                <item android:offset="1.0" android:color="#00E5FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Inner Video Reel Clapper / Frame lines -->
+    <path
+        android:pathData="M38,36 L70,36 L70,44 L38,44 Z"
+        android:fillColor="#33FFFFFF" />
+    <path
+        android:pathData="M42,36 L46,44 M52,36 L56,44 M62,36 L66,44"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8" />
+    <!-- Center Play/Shield Icon in White -->
+    <path
+        android:pathData="M48,48 L64,56 L48,64 Z"
+        android:fillColor="#FFFFFF" />
+    <!-- Mini Stop / Limit indicator bar -->
+    <path
+        android:pathData="M44,70 L64,70"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.0"
+        android:strokeLineCap="round" />
+</vector>

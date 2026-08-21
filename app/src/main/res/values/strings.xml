@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Reels Pal</string>
+    <string name="accessibility_service_label">Reels Pal Scroll Tracker</string>
+    <string name="accessibility_service_description">Reels Pal monitors Reels and Shorts scroll events on-device to help you stick to your daily screen time limits. No personal data or credentials are accessed or stored.</string>
+    
+    <!-- Notification strings -->
+    <string name="notification_channel_reminders">Limit Reminders</string>
+    <string name="notification_channel_reminders_desc">Periodic reminders when daily scroll limits have not been set</string>
+    <string name="notification_channel_hud">Active Overlay HUD</string>
+    <string name="notification_channel_hud_desc">Shows background service status for live scroll counter</string>
+    
+    <!-- Support & Links -->
+    <string name="support_email">stapearnsupport@gmail.com</string>
+    <string name="developer_instagram_url">https://www.instagram.com/shajamal.live</string>
+</resources>

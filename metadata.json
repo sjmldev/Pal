@@ -1,0 +1,6 @@
+{
+  "name": "Reels Pal",
+  "description": "Smart on-device Reels & Shorts scroll tracker and daily limit controller with live HUD overlay and digital wellbeing tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
