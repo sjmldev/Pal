@@ -457,15 +457,18 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                     val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                     val text = node.text?.toString()?.lowercase() ?: ""
 
-                    resId.contains("reel_player") ||
-                            resId.contains("shorts_container") ||
-                            resId.contains("reel_recycler") ||
-                            resId.contains("shorts_player_view") ||
+                    resId.contains("reel_") ||
+                            resId.contains("shorts") ||
+                            resId.contains("sound_button") ||
+                            resId.contains("remix_button") ||
                             desc.contains("shorts") ||
+                            desc.contains("short by") ||
                             desc.contains("dislike this short") ||
                             desc.contains("like this short") ||
-                            resId.contains("sound_button") ||
-                            resId.contains("remix_button")
+                            desc.contains("like this video") ||
+                            desc.contains("dislike this video") ||
+                            text.equals("shorts", ignoreCase = true) ||
+                            text.startsWith("#shorts", ignoreCase = true)
                 }
             }
         }
