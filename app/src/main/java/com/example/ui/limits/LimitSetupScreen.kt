@@ -74,11 +74,13 @@ import com.example.ads.AdManager
 import com.example.ads.StartAppBanner
 import com.example.data.preferences.AppPreferences
 import com.example.data.repository.ScrollRepository
+import com.example.ui.theme.FacebookBlue
 import com.example.ui.theme.InstagramGradientMid
 import com.example.ui.theme.PolishOnPurpleContainer
 import com.example.ui.theme.PolishPurpleContainer
 import com.example.ui.theme.PolishPurplePrimary
 import com.example.ui.theme.PolishStreakGold
+import com.example.ui.theme.SnapchatYellow
 import com.example.ui.theme.YouTubeRed
 import kotlinx.coroutines.launch
 
@@ -100,6 +102,12 @@ fun LimitSetupScreen(
     }
     var youtubeLimit by remember(todayRecord) {
         mutableIntStateOf(todayRecord?.youtubeLimit ?: 25)
+    }
+    var facebookLimit by remember(todayRecord) {
+        mutableIntStateOf(todayRecord?.facebookLimit ?: 25)
+    }
+    var snapchatLimit by remember(todayRecord) {
+        mutableIntStateOf(todayRecord?.snapchatLimit ?: 30)
     }
     var isLoadingAd by remember { mutableStateOf(false) }
 
@@ -258,6 +266,28 @@ fun LimitSetupScreen(
                 )
             }
 
+            // Facebook Reels Limit Card
+            item {
+                PlatformLimitCard(
+                    platformName = "Facebook Reels",
+                    accentColor = FacebookBlue,
+                    currentLimit = facebookLimit,
+                    isEnabled = !isLockedToday,
+                    onLimitChanged = { facebookLimit = it }
+                )
+            }
+
+            // Snapchat Spotlight Limit Card
+            item {
+                PlatformLimitCard(
+                    platformName = "Snapchat Spotlight",
+                    accentColor = SnapchatYellow,
+                    currentLimit = snapchatLimit,
+                    isEnabled = !isLockedToday,
+                    onLimitChanged = { snapchatLimit = it }
+                )
+            }
+
             // Ad-gating & Lock notice
             item {
                 Card(
@@ -280,7 +310,7 @@ fun LimitSetupScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Watching a quick sponsor ad is required to confirm and lock in today's limits.",
+                            text = "Watching a quick sponsor ad is required to confirm and lock in today's limits across all platforms.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -297,7 +327,12 @@ fun LimitSetupScreen(
                         isLoadingAd = true
                         AdManager.showInterstitialAd(activity) { success ->
                             coroutineScope.launch {
-                                repository.setTodayLimits(instagramLimit, youtubeLimit)
+                                repository.setTodayLimits(
+                                    instagramLimit = instagramLimit,
+                                    youtubeLimit = youtubeLimit,
+                                    facebookLimit = facebookLimit,
+                                    snapchatLimit = snapchatLimit
+                                )
                                 preferences.hasCompletedOnboarding = true
                                 isLoadingAd = false
                                 Toast.makeText(

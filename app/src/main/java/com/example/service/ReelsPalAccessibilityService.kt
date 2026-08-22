@@ -14,7 +14,9 @@ import com.example.data.preferences.AppPreferences
 import com.example.data.repository.ScrollRepository
 import com.example.receiver.ReminderManager
 import com.example.service.extractor.CandidateVideo
+import com.example.service.extractor.FacebookIdentityExtractor
 import com.example.service.extractor.InstagramIdentityExtractor
+import com.example.service.extractor.SnapchatIdentityExtractor
 import com.example.service.extractor.VideoIdentityExtractor
 import com.example.service.extractor.YouTubeIdentityExtractor
 import com.example.ui.blocked.BlockedActivity
@@ -47,6 +49,8 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     // Strategy extractors for supported short-video platforms
     private val instagramExtractor: VideoIdentityExtractor = InstagramIdentityExtractor()
     private val youtubeExtractor: VideoIdentityExtractor = YouTubeIdentityExtractor()
+    private val facebookExtractor: VideoIdentityExtractor = FacebookIdentityExtractor()
+    private val snapchatExtractor: VideoIdentityExtractor = SnapchatIdentityExtractor()
 
     private var currentRecord: DailyScrollRecord? = null
     private var activePlatform: ScrollPlatform? = null
@@ -55,8 +59,13 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     // Real-time synchronized in-memory counters for zero-latency live UI updates
     private var inMemoryIgCount: Int = 0
     private var inMemoryYtCount: Int = 0
+    private var inMemoryFbCount: Int = 0
+    private var inMemoryScCount: Int = 0
+
     private var inMemoryIgLimit: Int = 30
     private var inMemoryYtLimit: Int = 30
+    private var inMemoryFbLimit: Int = 30
+    private var inMemoryScLimit: Int = 30
     private var inMemoryDateString: String = ""
 
     // --- HARD DE-DUPLICATION GUARANTEE ENGINE ---
@@ -93,26 +102,46 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                         inMemoryDateString = record.dateString
                         inMemoryIgCount = record.instagramCount
                         inMemoryYtCount = record.youtubeCount
+                        inMemoryFbCount = record.facebookCount
+                        inMemoryScCount = record.snapchatCount
                     } else {
-                        if (record.instagramCount > inMemoryIgCount) {
-                            inMemoryIgCount = record.instagramCount
-                        }
-                        if (record.youtubeCount > inMemoryYtCount) {
-                            inMemoryYtCount = record.youtubeCount
-                        }
+                        if (record.instagramCount > inMemoryIgCount) inMemoryIgCount = record.instagramCount
+                        if (record.youtubeCount > inMemoryYtCount) inMemoryYtCount = record.youtubeCount
+                        if (record.facebookCount > inMemoryFbCount) inMemoryFbCount = record.facebookCount
+                        if (record.snapchatCount > inMemoryScCount) inMemoryScCount = record.snapchatCount
                     }
                     inMemoryIgLimit = record.totalInstagramAllowed
                     inMemoryYtLimit = record.totalYoutubeAllowed
+                    inMemoryFbLimit = record.totalFacebookAllowed
+                    inMemoryScLimit = record.totalSnapchatAllowed
                 }
 
                 // Update HUD if visible
                 val platform = activePlatform
                 if (isInReelsOrShortsSection && platform != null && preferences.isHudOverlayEnabled) {
-                    val count = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgCount else inMemoryYtCount
-                    val limit = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgLimit else inMemoryYtLimit
+                    val count = getInMemoryCount(platform)
+                    val limit = getInMemoryLimit(platform)
                     hudManager.showOrUpdateHud(platform, count, limit)
                 }
             }
+        }
+    }
+
+    private fun getInMemoryCount(platform: ScrollPlatform): Int {
+        return when (platform) {
+            ScrollPlatform.INSTAGRAM -> inMemoryIgCount
+            ScrollPlatform.YOUTUBE -> inMemoryYtCount
+            ScrollPlatform.FACEBOOK -> inMemoryFbCount
+            ScrollPlatform.SNAPCHAT -> inMemoryScCount
+        }
+    }
+
+    private fun getInMemoryLimit(platform: ScrollPlatform): Int {
+        return when (platform) {
+            ScrollPlatform.INSTAGRAM -> inMemoryIgLimit
+            ScrollPlatform.YOUTUBE -> inMemoryYtLimit
+            ScrollPlatform.FACEBOOK -> inMemoryFbLimit
+            ScrollPlatform.SNAPCHAT -> inMemoryScLimit
         }
     }
 
@@ -128,11 +157,13 @@ class ReelsPalAccessibilityService : AccessibilityService() {
             notificationTimeout = 50
             packageNames = arrayOf(
                 ScrollPlatform.INSTAGRAM.packageName,
-                ScrollPlatform.YOUTUBE.packageName
+                ScrollPlatform.YOUTUBE.packageName,
+                ScrollPlatform.FACEBOOK.packageName,
+                ScrollPlatform.SNAPCHAT.packageName
             )
         }
         serviceInfo = info
-        Log.d(TAG, "ReelsPal Accessibility Service connected")
+        Log.d(TAG, "ReelsPal Accessibility Service connected for Instagram, YouTube, Facebook, Snapchat")
     }
 
     /**
@@ -157,6 +188,20 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                     event = event
                 )
             }
+            ScrollPlatform.FACEBOOK.packageName -> {
+                handleTargetPlatformEvent(
+                    platform = ScrollPlatform.FACEBOOK,
+                    extractor = facebookExtractor,
+                    event = event
+                )
+            }
+            ScrollPlatform.SNAPCHAT.packageName -> {
+                handleTargetPlatformEvent(
+                    platform = ScrollPlatform.SNAPCHAT,
+                    extractor = snapchatExtractor,
+                    event = event
+                )
+            }
             else -> {
                 handleExitedTargetApp()
             }
@@ -177,8 +222,8 @@ class ReelsPalAccessibilityService : AccessibilityService() {
             val rootNode = rootInActiveWindow ?: return
 
             val (isBlocked, count, limit) = synchronized(this) {
-                val currentCount = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgCount else inMemoryYtCount
-                val currentLimit = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgLimit else inMemoryYtLimit
+                val currentCount = getInMemoryCount(platform)
+                val currentLimit = getInMemoryLimit(platform)
                 val blocked = currentCount >= currentLimit
                 Triple(blocked, currentCount, currentLimit)
             }
@@ -228,6 +273,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         }
     }
 
+
     /**
      * SERIALIZED SINGLE ENTRY POINT: Evaluates candidate against existing state.
      * Guarantees that exactly 1 count is added per unique video watched.
@@ -242,7 +288,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         var limit = 0
         var limitExceeded = false
         var dateStr = ""
-        val auditTag = if (platform == ScrollPlatform.INSTAGRAM) "[INSTAGRAM REEL AUDIT]" else "[YOUTUBE SHORT AUDIT]"
+        val auditTag = "[${platform.displayName.uppercase()} AUDIT]"
 
         deduplicationMutex.withLock {
             // A. Reset platform context if switched apps
@@ -300,21 +346,23 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                 return
             }
 
-            // F. Author match: If the primary author is identical, it is the same video (or author profile)
+            // F. Author match: If the primary author is identical AND no distinct title/tokens exist, it is the same video
             val currentAuthor = lastCountedAuthor
             if (currentAuthor != null && candidate.primaryAuthor.isNotEmpty() && currentAuthor.equals(candidate.primaryAuthor, ignoreCase = true)) {
-                if (DEBUG_LOGS) {
-                    Log.v(TAG, "$auditTag SKIPPED (Same Author on Screen): '$currentAuthor'")
+                val hasDistinctTitle = candidate.tokens.any { it.startsWith("t:") && !lastCountedTokens.contains(it) }
+                if (!hasDistinctTitle) {
+                    if (DEBUG_LOGS) {
+                        Log.v(TAG, "$auditTag SKIPPED (Same Author on Screen): '$currentAuthor'")
+                    }
+                    lastCountedTokens = lastCountedTokens + candidate.tokens
+                    return
                 }
-                // Update tokens to active set
-                lastCountedTokens = lastCountedTokens + candidate.tokens
-                return
             }
 
             // G. Token Set Overlap check: If 2+ secondary tokens match (e.g. caption, audio, desc), it's the same video
             if (lastCountedTokens.isNotEmpty() && candidate.tokens.isNotEmpty()) {
                 val intersection = lastCountedTokens.intersect(candidate.tokens)
-                if (intersection.size >= 2 || (intersection.isNotEmpty() && (lastCountedTokens.size <= 2 || candidate.tokens.size <= 2))) {
+                if (intersection.size >= 2) {
                     if (DEBUG_LOGS) {
                         Log.v(TAG, "$auditTag SKIPPED (Token Overlap Match: ${intersection.joinToString()}): Candidate='${candidate.canonicalId}'")
                     }
@@ -322,7 +370,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // H. Check if candidate ID or author exists in recent history buffer (prevents back-and-forth settlement)
+            // H. Check if candidate ID exists in recent history buffer (prevents back-and-forth settlement)
             if (isInRecentHistory(candidate)) {
                 if (DEBUG_LOGS) {
                     Log.d(TAG, "$auditTag SKIPPED (Found in Recent 60s History): '${candidate.canonicalId}'")
@@ -356,20 +404,23 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                 if (oldest != null) recentCountedVideoMap.remove(oldest)
             }
 
-            newCount = if (platform == ScrollPlatform.INSTAGRAM) {
-                inMemoryIgCount++
-                inMemoryIgCount
-            } else {
-                inMemoryYtCount++
-                inMemoryYtCount
+            newCount = when (platform) {
+                ScrollPlatform.INSTAGRAM -> { inMemoryIgCount++; inMemoryIgCount }
+                ScrollPlatform.YOUTUBE -> { inMemoryYtCount++; inMemoryYtCount }
+                ScrollPlatform.FACEBOOK -> { inMemoryFbCount++; inMemoryFbCount }
+                ScrollPlatform.SNAPCHAT -> { inMemoryScCount++; inMemoryScCount }
             }
-            limit = if (platform == ScrollPlatform.INSTAGRAM) inMemoryIgLimit else inMemoryYtLimit
+            limit = getInMemoryLimit(platform)
             limitExceeded = newCount >= limit
             dateStr = currentRecord?.dateString ?: inMemoryDateString.ifEmpty { repository.getTodayDateString() }
 
             currentRecord = currentRecord?.let { rec ->
-                if (platform == ScrollPlatform.INSTAGRAM) rec.copy(instagramCount = newCount)
-                else rec.copy(youtubeCount = newCount)
+                when (platform) {
+                    ScrollPlatform.INSTAGRAM -> rec.copy(instagramCount = newCount)
+                    ScrollPlatform.YOUTUBE -> rec.copy(youtubeCount = newCount)
+                    ScrollPlatform.FACEBOOK -> rec.copy(facebookCount = newCount)
+                    ScrollPlatform.SNAPCHAT -> rec.copy(snapchatCount = newCount)
+                }
             }
 
             shouldCount = true
@@ -395,17 +446,17 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                 try {
                     val updated = repository.incrementScroll(platform, candidate.canonicalId)
                     deduplicationMutex.withLock {
-                        if (updated.instagramCount > inMemoryIgCount) {
-                            inMemoryIgCount = updated.instagramCount
-                        }
-                        if (updated.youtubeCount > inMemoryYtCount) {
-                            inMemoryYtCount = updated.youtubeCount
-                        }
+                        if (updated.instagramCount > inMemoryIgCount) inMemoryIgCount = updated.instagramCount
+                        if (updated.youtubeCount > inMemoryYtCount) inMemoryYtCount = updated.youtubeCount
+                        if (updated.facebookCount > inMemoryFbCount) inMemoryFbCount = updated.facebookCount
+                        if (updated.snapchatCount > inMemoryScCount) inMemoryScCount = updated.snapchatCount
                         inMemoryIgLimit = updated.totalInstagramAllowed
                         inMemoryYtLimit = updated.totalYoutubeAllowed
+                        inMemoryFbLimit = updated.totalFacebookAllowed
+                        inMemoryScLimit = updated.totalSnapchatAllowed
                         currentRecord = updated
                     }
-                    Log.d(TAG, "Scroll persisted to Room DB: count=$newCount")
+                    Log.d(TAG, "Scroll persisted to Room DB: $platform count=$newCount")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error persisting scroll: ${e.message}", e)
                 }
@@ -414,18 +465,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     }
 
     private fun isInRecentHistory(candidate: CandidateVideo): Boolean {
-        if (recentCountedVideoMap.containsKey(candidate.canonicalId)) return true
-        for (historicalId in recentCountedVideoMap.keys) {
-            if (historicalId == candidate.canonicalId ||
-                (candidate.primaryAuthor.isNotEmpty() && historicalId.contains("u:" + candidate.primaryAuthor)) ||
-                (candidate.primaryAuthor.isNotEmpty() && historicalId.contains("c:" + candidate.primaryAuthor)) ||
-                historicalId.contains(candidate.canonicalId) ||
-                candidate.canonicalId.contains(historicalId)
-            ) {
-                return true
-            }
-        }
-        return false
+        return recentCountedVideoMap.containsKey(candidate.canonicalId)
     }
 
     private fun isInsideShortsOrReels(platform: ScrollPlatform, rootNode: AccessibilityNodeInfo): Boolean {
@@ -452,23 +492,60 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                 }
             }
             ScrollPlatform.YOUTUBE -> {
-                findNodeByPredicate(rootNode, maxDepth = 14) { node ->
+                findNodeByPredicate(rootNode, maxDepth = 25) { node ->
                     val resId = node.viewIdResourceName?.lowercase() ?: ""
                     val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                     val text = node.text?.toString()?.lowercase() ?: ""
 
-                    resId.contains("reel_") ||
+                    resId.contains("short_video_player") ||
+                            resId.contains("reel_") ||
                             resId.contains("shorts") ||
                             resId.contains("sound_button") ||
                             resId.contains("remix_button") ||
+                            resId.contains("pivot_button") ||
                             desc.contains("shorts") ||
                             desc.contains("short by") ||
                             desc.contains("dislike this short") ||
                             desc.contains("like this short") ||
                             desc.contains("like this video") ||
                             desc.contains("dislike this video") ||
+                            desc.contains("create with this sound") ||
+                            desc.contains("use this sound") ||
                             text.equals("shorts", ignoreCase = true) ||
                             text.startsWith("#shorts", ignoreCase = true)
+                }
+            }
+            ScrollPlatform.FACEBOOK -> {
+                findNodeByPredicate(rootNode, maxDepth = 20) { node ->
+                    val resId = node.viewIdResourceName?.lowercase() ?: ""
+                    val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                    val text = node.text?.toString()?.lowercase() ?: ""
+
+                    resId.contains("fb_shorts") ||
+                            resId.contains("reels") ||
+                            resId.contains("video_player_container") ||
+                            resId.contains("reels_viewer") ||
+                            resId.contains("reels_tray") ||
+                            desc.contains("reel by") ||
+                            desc.contains("reels by") ||
+                            text.equals("reels", ignoreCase = true) ||
+                            text.startsWith("#reels", ignoreCase = true)
+                }
+            }
+            ScrollPlatform.SNAPCHAT -> {
+                findNodeByPredicate(rootNode, maxDepth = 20) { node ->
+                    val resId = node.viewIdResourceName?.lowercase() ?: ""
+                    val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                    val text = node.text?.toString()?.lowercase() ?: ""
+
+                    resId.contains("spotlight") ||
+                            resId.contains("snap_story") ||
+                            resId.contains("spotlight_player") ||
+                            resId.contains("lens_view") ||
+                            desc.contains("spotlight by") ||
+                            desc.contains("snap by") ||
+                            text.equals("spotlight", ignoreCase = true) ||
+                            text.equals("stories", ignoreCase = true)
                 }
             }
         }
@@ -507,18 +584,10 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         val currentMilestone = (percent / 10) * 10
 
         if (currentMilestone in 10..100) {
-            val lastNotified = if (platform == ScrollPlatform.INSTAGRAM) {
-                preferences.getLastNotifiedMilestoneIg(dateString)
-            } else {
-                preferences.getLastNotifiedMilestoneYt(dateString)
-            }
+            val lastNotified = preferences.getLastNotifiedMilestone(platform.name, dateString)
 
             if (currentMilestone > lastNotified) {
-                if (platform == ScrollPlatform.INSTAGRAM) {
-                    preferences.setLastNotifiedMilestoneIg(dateString, currentMilestone)
-                } else {
-                    preferences.setLastNotifiedMilestoneYt(dateString, currentMilestone)
-                }
+                preferences.setLastNotifiedMilestone(platform.name, dateString, currentMilestone)
 
                 ReminderManager.sendMilestoneProgressNotification(
                     context = this,

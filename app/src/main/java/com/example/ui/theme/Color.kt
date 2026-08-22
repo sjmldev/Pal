@@ -27,11 +27,13 @@ val PolishGreenSafe = Color(0xFF2E7D32)
 val PolishAmber = Color(0xFFE65100)
 val PolishStreakGold = Color(0xFFF57C00)
 
-// Instagram & YouTube Brand Accent Colors
+// Instagram & YouTube & Facebook & Snapchat Brand Accent Colors
 val InstagramGradientStart = Color(0xFFF58529)
 val InstagramGradientMid = Color(0xFFDD2A7B)
 val InstagramGradientEnd = Color(0xFF8134AF)
 val YouTubeRed = Color(0xFFE53935)
+val FacebookBlue = Color(0xFF1877F2)
+val SnapchatYellow = Color(0xFFFFFC00)
 
 // Light Theme Surfaces (Professional Polish)
 val LightBackground = Color(0xFFFBFDF8)

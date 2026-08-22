@@ -9,13 +9,11 @@ import com.example.data.model.ScrollPlatform
 /**
  * Strategy implementation for extracting stable video identities from YouTube Shorts.
  *
- * Utilizes YouTube's unique view hierarchy and event lifecycle patterns:
- * - Direct channel handle extraction (`@creator` handle pattern).
- * - Channel avatar and subscribe button content descriptions (`"Subscribe to <Channel>"`, `"<Channel> channel icon"`).
- * - Explicit YouTube view resource IDs (`reel_channel_name`, `channel_name`, `reel_video_title`, `video_title`, `sound_button`).
- * - Video title / description parsing from both view properties and accessibility content descriptions.
- * - Multi-token normalization guaranteeing equivalence between early description and late child-view binding.
- * - Viewport bounds validation using real display metrics.
+ * Specific requirements:
+ * 1. Searches specifically for the 'short_video_player' view hierarchy (and related Shorts player nodes).
+ * 2. Combines the video's content description and current scroll position to form a stable unique ID.
+ * 3. Deeply inspects nested node structures (depth up to 35) to guarantee a non-null candidate string
+ *    even when elements are nested deep within the Shorts player view.
  */
 class YouTubeIdentityExtractor : VideoIdentityExtractor {
 
@@ -29,15 +27,48 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
 
         var primaryAuthor = ""
         var primaryTitle = ""
+        var primaryAudio = ""
+        var primaryContentDescription = ""
+        var playerScrollPosition = -1
+        var playerCenterY = -1
+        var foundShortVideoPlayerNode = false
+
         val tokens = mutableSetOf<String>()
         val keyParts = StringBuilder("yt:")
 
         val nodeRect = Rect()
 
-        traverseNodes(rootNode, maxDepth = 15) { node ->
+        // 1. Deep traversal across the entire Shorts hierarchy
+        traverseNodes(rootNode, maxDepth = 35) { node ->
             node.getBoundsInScreen(nodeRect)
 
-            // Viewport boundary check
+            val resId = node.viewIdResourceName?.lowercase() ?: ""
+            val rawText = node.text?.toString()?.trim() ?: ""
+            val rawDesc = node.contentDescription?.toString()?.trim() ?: ""
+
+            // Check if this node belongs to or is the 'short_video_player' container
+            val isPlayerNode = resId.contains("short_video_player") ||
+                    resId.contains("shorts_player") ||
+                    resId.contains("reel_player") ||
+                    resId.contains("reel_watch_fragment") ||
+                    resId.contains("player_view")
+
+            if (isPlayerNode) {
+                foundShortVideoPlayerNode = true
+                playerCenterY = nodeRect.centerY()
+
+                // Extract scroll item index if provided by accessibility collection info
+                node.collectionItemInfo?.let { itemInfo ->
+                    playerScrollPosition = itemInfo.rowIndex
+                }
+
+                // If content description is attached directly to the player node
+                if (rawDesc.isNotEmpty() && !isIgnoredUiText(rawDesc)) {
+                    primaryContentDescription = rawDesc
+                }
+            }
+
+            // Viewport boundary check for children/subviews
             if (nodeRect.bottom <= 0 || nodeRect.top >= screenHeight ||
                 nodeRect.right <= 0 || nodeRect.left >= screenWidth ||
                 nodeRect.width() <= 0 || nodeRect.height() <= 0
@@ -45,11 +76,16 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
                 return@traverseNodes
             }
 
-            val resId = node.viewIdResourceName?.lowercase() ?: ""
-            val rawText = node.text?.toString()?.trim() ?: ""
-            val rawDesc = node.contentDescription?.toString()?.trim() ?: ""
+            // Extract collection row index from any visible item in viewport if not set yet
+            if (playerScrollPosition == -1) {
+                node.collectionItemInfo?.let { itemInfo ->
+                    if (itemInfo.rowIndex >= 0) {
+                        playerScrollPosition = itemInfo.rowIndex
+                    }
+                }
+            }
 
-            // 1. Direct YouTube Channel Handle extraction (e.g. "@creator")
+            // Direct YouTube Channel Handle extraction (e.g. "@creator")
             if (rawText.startsWith("@") && rawText.length in 2..45 && !isIgnoredUiText(rawText)) {
                 val handle = rawText.removePrefix("@").lowercase().trim()
                 if (handle.isNotEmpty() && !isIgnoredUiText(handle)) {
@@ -62,11 +98,12 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
                 }
             }
 
-            // 2. Channel / Creator name view IDs (e.g. reel_channel_name, channel_name, owner_name)
+            // Channel / Creator name view IDs
             if (resId.contains("channel_name") || resId.contains("owner_name") ||
                 resId.contains("owner_text") || resId.contains("reel_channel_name") ||
                 resId.contains("channel_title") || resId.contains("uploader_name") ||
-                resId.contains("author") || resId.contains("creator")
+                resId.contains("reel_channel_title") || resId.contains("reel_author") ||
+                resId.contains("author_text")
             ) {
                 if (rawText.isNotEmpty() && !isIgnoredUiText(rawText)) {
                     val channel = rawText.lowercase().removePrefix("@").trim()
@@ -81,10 +118,11 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
                 }
             }
 
-            // 3. Video Title / Description view IDs (e.g. reel_video_title, video_title, title_text)
+            // Video Title / Caption view IDs
             if (resId.contains("video_title") || resId.contains("title_text") ||
                 resId.contains("reel_video_title") || resId.contains("video_description") ||
-                resId.contains("reel_player_title") || resId.contains("reel_description")
+                resId.contains("reel_player_title") || resId.contains("reel_description") ||
+                resId.contains("description_text")
             ) {
                 if (rawText.isNotEmpty() && rawText.length >= 3 && !isIgnoredUiText(rawText)) {
                     val title = rawText.lowercase().take(40)
@@ -97,13 +135,15 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
                 }
             }
 
-            // 4. Audio / Sound view IDs
+            // Audio / Sound view IDs
             if (resId.contains("sound_title") || resId.contains("audio_track") ||
                 resId.contains("sound_button") || resId.contains("music_title") ||
-                resId.contains("reel_sound_button") || resId.contains("reel_audio_title")
+                resId.contains("reel_sound_button") || resId.contains("reel_audio_title") ||
+                resId.contains("pivot_button")
             ) {
                 if (rawText.isNotEmpty() && !isIgnoredUiText(rawText)) {
                     val audio = rawText.lowercase().take(25)
+                    if (primaryAudio.isEmpty()) primaryAudio = audio
                     val tag = "a:$audio"
                     if (!tokens.contains(tag)) {
                         tokens.add(tag)
@@ -112,12 +152,17 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
                 }
             }
 
-            // 5. Content description parsing (Handles early Phase 1 events and subscribe/avatar accessibility labels)
+            // Content description parsing
             if (rawDesc.isNotEmpty()) {
                 val lowerDesc = rawDesc.lowercase()
 
+                if (primaryContentDescription.isEmpty() && !isIgnoredUiText(lowerDesc)) {
+                    primaryContentDescription = lowerDesc
+                }
+
                 when {
                     lowerDesc.startsWith("short by ") -> {
+                        primaryContentDescription = lowerDesc
                         val parsedChannel = lowerDesc
                             .removePrefix("short by ")
                             .substringBefore("-")
@@ -184,40 +229,97 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
                             tokens.add(tag)
                         }
                     }
+                    lowerDesc.startsWith("sound:") || lowerDesc.startsWith("audio:") -> {
+                        val parsedAudio = lowerDesc.removePrefix("sound:").removePrefix("audio:").trim().take(25)
+                        if (parsedAudio.isNotEmpty() && !isIgnoredUiText(parsedAudio)) {
+                            if (primaryAudio.isEmpty()) primaryAudio = parsedAudio
+                            val tag = "a:$parsedAudio"
+                            tokens.add(tag)
+                        }
+                    }
                 }
             }
 
-            // 6. Stable on-screen text snippet fallback
-            if (rawText.isNotEmpty() && rawText.length in 3..60 && !isIgnoredUiText(rawText)) {
-                val snippetTag = "s:" + rawText.lowercase().take(30)
-                tokens.add(snippetTag)
+            // Bottom overlay text fallback for title
+            if (primaryTitle.isEmpty() && rawText.isNotEmpty() && rawText.length in 4..80 &&
+                !isIgnoredUiText(rawText) && !rawText.startsWith("@") &&
+                nodeRect.top > screenHeight * 0.35
+            ) {
+                val candidateText = rawText.lowercase().take(40)
+                if (candidateText.isNotEmpty() && !isIgnoredUiText(candidateText)) {
+                    primaryTitle = candidateText
+                    val tag = "t:$candidateText"
+                    tokens.add(tag)
+                    keyParts.append(tag).append("|")
+                }
             }
         }
 
-        // Formulate a robust, canonical video identity string
+        // 2. Derive stable scroll position component
+        val scrollPosKey = if (playerScrollPosition >= 0) {
+            "p:$playerScrollPosition"
+        } else if (playerCenterY > 0) {
+            // Normalized viewport snap position
+            "py:${playerCenterY / (screenHeight / 4)}"
+        } else {
+            "p:0"
+        }
+        tokens.add(scrollPosKey)
+
+        // 3. Clean and sanitize content description component
+        val cleanDesc = primaryContentDescription
+            .lowercase()
+            .replace(Regex("[^a-z0-9@_\\- ]"), "")
+            .trim()
+            .take(40)
+
+        // 4. Formulate stable canonical ID combining content description, scroll position, and author/title
         val canonicalId = when {
-            primaryAuthor.isNotEmpty() && primaryTitle.isNotEmpty() -> "yt:c:$primaryAuthor|t:$primaryTitle|"
-            primaryAuthor.isNotEmpty() && tokens.isNotEmpty() -> {
-                val extra = tokens.filter { !it.startsWith("c:") }.take(2).joinToString("|")
-                if (extra.isNotEmpty()) "yt:c:$primaryAuthor|$extra|" else "yt:c:$primaryAuthor|"
+            // Priority 1: Direct Content Description + Scroll Position
+            cleanDesc.isNotEmpty() && (primaryAuthor.isNotEmpty() || playerScrollPosition >= 0) -> {
+                "yt:desc:$cleanDesc|$scrollPosKey|"
             }
-            primaryAuthor.isNotEmpty() -> "yt:c:$primaryAuthor|"
-            primaryTitle.isNotEmpty() && tokens.isNotEmpty() -> {
-                val extra = tokens.filter { !it.startsWith("t:") }.take(2).joinToString("|")
-                if (extra.isNotEmpty()) "yt:t:$primaryTitle|$extra|" else "yt:t:$primaryTitle|"
+            // Priority 2: Author + Title + Scroll Position
+            primaryAuthor.isNotEmpty() && primaryTitle.isNotEmpty() -> {
+                "yt:c:$primaryAuthor|t:$primaryTitle|$scrollPosKey|"
             }
-            primaryTitle.isNotEmpty() -> "yt:t:$primaryTitle|"
-            keyParts.length > 3 -> keyParts.toString()
-            tokens.isNotEmpty() -> "yt:" + tokens.take(3).joinToString(separator = "|")
-            else -> ""
+            // Priority 3: Author + Audio/Tokens + Scroll Position
+            primaryAuthor.isNotEmpty() -> {
+                if (primaryAudio.isNotEmpty()) {
+                    "yt:c:$primaryAuthor|a:$primaryAudio|$scrollPosKey|"
+                } else {
+                    "yt:c:$primaryAuthor|$scrollPosKey|"
+                }
+            }
+            // Priority 4: Content Description alone
+            cleanDesc.isNotEmpty() -> {
+                "yt:desc:$cleanDesc|$scrollPosKey|"
+            }
+            // Priority 5: Title + Scroll Position
+            primaryTitle.isNotEmpty() -> {
+                "yt:t:$primaryTitle|$scrollPosKey|"
+            }
+            // Priority 6: Accumulated key parts
+            keyParts.length > 3 -> {
+                "$keyParts$scrollPosKey|"
+            }
+            // Priority 7: Tokens or Short Video Player presence guarantee
+            tokens.isNotEmpty() -> {
+                "yt:" + tokens.take(3).joinToString(separator = "|") + "|$scrollPosKey|"
+            }
+            foundShortVideoPlayerNode -> {
+                "yt:short_video_player|$scrollPosKey|"
+            }
+            else -> {
+                // Fallback guarantee when inside Shorts player view hierarchy
+                "yt:short_video_player:active|"
+            }
         }
 
-        if (canonicalId.isEmpty() || canonicalId == "yt:") {
-            Log.v(TAG, "[YOUTUBE SHORT EXTRACTOR] No identifiable video attributes found on screen.")
-            return null
-        }
-
-        Log.d(TAG, "[YOUTUBE SHORT EXTRACTOR] Extracted candidate: ID='$canonicalId', Author='$primaryAuthor', Title='$primaryTitle', TokenCount=${tokens.size}")
+        Log.d(
+            TAG,
+            "[YOUTUBE SHORT EXTRACTOR] Extracted candidate: ID='$canonicalId', Author='$primaryAuthor', Title='$primaryTitle', Desc='$cleanDesc', ScrollPos='$scrollPosKey', FoundPlayer=$foundShortVideoPlayerNode"
+        )
 
         return CandidateVideo(
             platform = ScrollPlatform.YOUTUBE,
@@ -242,7 +344,8 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
             "suggested for you", "use audio", "watch again", "reply", "see translation",
             "play", "pause", "mute", "unmute", "search", "home", "subscriptions",
             "library", "notifications", "join", "shop", "products", "paid promotion",
-            "tap to unmute", "sound", "use sound"
+            "tap to unmute", "sound", "use sound", "create", "you", "explore",
+            "trending", "history", "all", "back", "close", "menu"
         )
         return ignoredTokens.contains(text)
     }
@@ -250,7 +353,7 @@ class YouTubeIdentityExtractor : VideoIdentityExtractor {
     private fun traverseNodes(
         node: AccessibilityNodeInfo?,
         depth: Int = 0,
-        maxDepth: Int = 15,
+        maxDepth: Int = 35,
         visitor: (AccessibilityNodeInfo) -> Unit
     ) {
         if (node == null || depth > maxDepth) return

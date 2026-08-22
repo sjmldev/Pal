@@ -31,23 +31,21 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_PROGRESS_NOTIFS_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_PROGRESS_NOTIFS_ENABLED, value).apply()
 
-    // Tracks which 10% milestone bracket (10, 20, 30... 100) was last notified today for Instagram
-    fun getLastNotifiedMilestoneIg(dateString: String): Int {
-        return prefs.getInt("key_last_milestone_ig_$dateString", 0)
+    // Tracks which 10% milestone bracket (10, 20, 30... 100) was last notified today for any platform
+    fun getLastNotifiedMilestone(platform: String, dateString: String): Int {
+        return prefs.getInt("key_last_milestone_${platform.lowercase()}_$dateString", 0)
     }
 
-    fun setLastNotifiedMilestoneIg(dateString: String, milestone: Int) {
-        prefs.edit().putInt("key_last_milestone_ig_$dateString", milestone).apply()
+    fun setLastNotifiedMilestone(platform: String, dateString: String, milestone: Int) {
+        prefs.edit().putInt("key_last_milestone_${platform.lowercase()}_$dateString", milestone).apply()
     }
 
-    // Tracks which 10% milestone bracket (10, 20, 30... 100) was last notified today for YouTube
-    fun getLastNotifiedMilestoneYt(dateString: String): Int {
-        return prefs.getInt("key_last_milestone_yt_$dateString", 0)
-    }
+    fun getLastNotifiedMilestoneIg(dateString: String): Int = getLastNotifiedMilestone("INSTAGRAM", dateString)
+    fun setLastNotifiedMilestoneIg(dateString: String, milestone: Int) = setLastNotifiedMilestone("INSTAGRAM", dateString, milestone)
 
-    fun setLastNotifiedMilestoneYt(dateString: String, milestone: Int) {
-        prefs.edit().putInt("key_last_milestone_yt_$dateString", milestone).apply()
-    }
+    fun getLastNotifiedMilestoneYt(dateString: String): Int = getLastNotifiedMilestone("YOUTUBE", dateString)
+    fun setLastNotifiedMilestoneYt(dateString: String, milestone: Int) = setLastNotifiedMilestone("YOUTUBE", dateString, milestone)
+
 
     companion object {
         private const val KEY_ONBOARDING_DONE = "key_onboarding_done"

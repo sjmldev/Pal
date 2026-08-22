@@ -459,9 +459,8 @@ class HudOverlayManager private constructor(private val context: Context) {
 
     @SuppressLint("SetTextI18n")
     private fun updateIslandContent(platform: ScrollPlatform, count: Int, limit: Int) {
-        val isInstagram = (platform == ScrollPlatform.INSTAGRAM)
-        val icon = if (isInstagram) "🎬" else "▶️"
-        val platformName = if (isInstagram) "Instagram Reels" else "YouTube Shorts"
+        val icon = platform.iconEmoji
+        val platformName = platform.displayName
 
         val countChanged = (count != lastDisplayedCount && lastDisplayedCount != -1)
         lastDisplayedCount = count
@@ -470,10 +469,13 @@ class HudOverlayManager private constructor(private val context: Context) {
         val percent = if (limit > 0) ((count.toFloat() / limit.toFloat()) * 100).toInt() else 0
         val clampedPercent = percent.coerceIn(0, 100)
 
-        // Accent & Glow Colors based on usage
+        // Accent & Glow Colors based on usage and platform
         val (accentColor, badgeBgColor) = when {
             percent >= 100 -> Pair(0xFFFF3B30.toInt(), 0x44FF3B30.toInt()) // Crimson Red
             percent >= 80 -> Pair(0xFFFFB300.toInt(), 0x44FFB300.toInt())  // Warning Amber
+            platform == ScrollPlatform.FACEBOOK -> Pair(0xFF1877F2.toInt(), 0x331877F2.toInt()) // Facebook Blue
+            platform == ScrollPlatform.SNAPCHAT -> Pair(0xFFFFFC00.toInt(), 0x33FFFC00.toInt()) // Snapchat Yellow
+            platform == ScrollPlatform.YOUTUBE -> Pair(0xFFFF0000.toInt(), 0x33FF0000.toInt())  // YouTube Red
             else -> Pair(0xFF00E5FF.toInt(), 0x3300E5FF.toInt())           // Electric Cyan / Violet
         }
 
@@ -482,7 +484,7 @@ class HudOverlayManager private constructor(private val context: Context) {
         counterText?.text = "$count / $limit"
         percentBadgeText?.apply {
             text = "$percent%"
-            setTextColor(accentColor)
+            setTextColor(if (platform == ScrollPlatform.SNAPCHAT && percent < 80) Color.WHITE else accentColor)
             (background as? android.graphics.drawable.GradientDrawable)?.setColor(badgeBgColor)
         }
 
@@ -507,6 +509,7 @@ class HudOverlayManager private constructor(private val context: Context) {
         overlayRootView?.requestLayout()
         overlayRootView?.invalidate()
     }
+
 
     /**
      * Executes a spring bounce on the Dynamic Island pill when a new video is counted.

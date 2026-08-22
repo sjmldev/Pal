@@ -36,14 +36,33 @@ interface ScrollDao {
     @Query("UPDATE daily_scroll_records SET youtubeCount = youtubeCount + :amount, lastUpdatedTimestamp = :now WHERE dateString = :date")
     suspend fun incrementYoutubeCount(date: String, amount: Int = 1, now: Long = System.currentTimeMillis())
 
+    @Query("UPDATE daily_scroll_records SET facebookCount = facebookCount + :amount, lastUpdatedTimestamp = :now WHERE dateString = :date")
+    suspend fun incrementFacebookCount(date: String, amount: Int = 1, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE daily_scroll_records SET snapchatCount = snapchatCount + :amount, lastUpdatedTimestamp = :now WHERE dateString = :date")
+    suspend fun incrementSnapchatCount(date: String, amount: Int = 1, now: Long = System.currentTimeMillis())
+
     @Query("UPDATE daily_scroll_records SET instagramUnlockedBonus = instagramUnlockedBonus + :bonus, lastUpdatedTimestamp = :now WHERE dateString = :date")
     suspend fun addInstagramBonus(date: String, bonus: Int = 10, now: Long = System.currentTimeMillis())
 
     @Query("UPDATE daily_scroll_records SET youtubeUnlockedBonus = youtubeUnlockedBonus + :bonus, lastUpdatedTimestamp = :now WHERE dateString = :date")
     suspend fun addYoutubeBonus(date: String, bonus: Int = 10, now: Long = System.currentTimeMillis())
 
-    @Query("UPDATE daily_scroll_records SET instagramLimit = :igLimit, youtubeLimit = :ytLimit, limitSetToday = 1, lastUpdatedTimestamp = :now WHERE dateString = :date")
-    suspend fun updateLimitsForToday(date: String, igLimit: Int, ytLimit: Int, now: Long = System.currentTimeMillis())
+    @Query("UPDATE daily_scroll_records SET facebookUnlockedBonus = facebookUnlockedBonus + :bonus, lastUpdatedTimestamp = :now WHERE dateString = :date")
+    suspend fun addFacebookBonus(date: String, bonus: Int = 10, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE daily_scroll_records SET snapchatUnlockedBonus = snapchatUnlockedBonus + :bonus, lastUpdatedTimestamp = :now WHERE dateString = :date")
+    suspend fun addSnapchatBonus(date: String, bonus: Int = 10, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE daily_scroll_records SET instagramLimit = :igLimit, youtubeLimit = :ytLimit, facebookLimit = :fbLimit, snapchatLimit = :scLimit, limitSetToday = 1, lastUpdatedTimestamp = :now WHERE dateString = :date")
+    suspend fun updateLimitsForToday(
+        date: String,
+        igLimit: Int,
+        ytLimit: Int,
+        fbLimit: Int = 30,
+        scLimit: Int = 30,
+        now: Long = System.currentTimeMillis()
+    )
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEventLog(log: ScrollEventLog)
@@ -51,3 +70,4 @@ interface ScrollDao {
     @Query("SELECT * FROM scroll_event_logs WHERE dateString = :date ORDER BY timestamp DESC LIMIT 50")
     fun getRecentLogsForDate(date: String): Flow<List<ScrollEventLog>>
 }
+

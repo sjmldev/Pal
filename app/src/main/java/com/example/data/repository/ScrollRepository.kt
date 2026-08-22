@@ -52,15 +52,23 @@ class ScrollRepository(
         val previousRecord = scrollDao.getLatestPreviousRecord(today)
         val carriedIgLimit = previousRecord?.instagramLimit ?: 30
         val carriedYtLimit = previousRecord?.youtubeLimit ?: 30
+        val carriedFbLimit = previousRecord?.facebookLimit ?: 30
+        val carriedScLimit = previousRecord?.snapchatLimit ?: 30
 
         val newRecord = DailyScrollRecord(
             dateString = today,
             instagramCount = 0,
             youtubeCount = 0,
+            facebookCount = 0,
+            snapchatCount = 0,
             instagramLimit = carriedIgLimit,
             youtubeLimit = carriedYtLimit,
+            facebookLimit = carriedFbLimit,
+            snapchatLimit = carriedScLimit,
             instagramUnlockedBonus = 0,
             youtubeUnlockedBonus = 0,
+            facebookUnlockedBonus = 0,
+            snapchatUnlockedBonus = 0,
             limitSetToday = false,
             lastUpdatedTimestamp = System.currentTimeMillis()
         )
@@ -74,16 +82,19 @@ class ScrollRepository(
             val currentRecord = getOrCreateTodayRecordSync(today)
 
             when (platform) {
-                ScrollPlatform.INSTAGRAM -> {
-                    scrollDao.incrementInstagramCount(today, 1)
-                }
-                ScrollPlatform.YOUTUBE -> {
-                    scrollDao.incrementYoutubeCount(today, 1)
-                }
+                ScrollPlatform.INSTAGRAM -> scrollDao.incrementInstagramCount(today, 1)
+                ScrollPlatform.YOUTUBE -> scrollDao.incrementYoutubeCount(today, 1)
+                ScrollPlatform.FACEBOOK -> scrollDao.incrementFacebookCount(today, 1)
+                ScrollPlatform.SNAPCHAT -> scrollDao.incrementSnapchatCount(today, 1)
             }
 
             val updatedRecord = scrollDao.getRecordForDateSync(today) ?: currentRecord
-            val runningCount = if (platform == ScrollPlatform.INSTAGRAM) updatedRecord.instagramCount else updatedRecord.youtubeCount
+            val runningCount = when (platform) {
+                ScrollPlatform.INSTAGRAM -> updatedRecord.instagramCount
+                ScrollPlatform.YOUTUBE -> updatedRecord.youtubeCount
+                ScrollPlatform.FACEBOOK -> updatedRecord.facebookCount
+                ScrollPlatform.SNAPCHAT -> updatedRecord.snapchatCount
+            }
 
             scrollDao.insertEventLog(
                 ScrollEventLog(
@@ -106,28 +117,36 @@ class ScrollRepository(
             when (platform) {
                 ScrollPlatform.INSTAGRAM -> scrollDao.addInstagramBonus(today, amount)
                 ScrollPlatform.YOUTUBE -> scrollDao.addYoutubeBonus(today, amount)
+                ScrollPlatform.FACEBOOK -> scrollDao.addFacebookBonus(today, amount)
+                ScrollPlatform.SNAPCHAT -> scrollDao.addSnapchatBonus(today, amount)
             }
 
             scrollDao.getRecordForDateSync(today) ?: getOrCreateTodayRecordSync(today)
         }
 
-    suspend fun setTodayLimits(instagramLimit: Int, youtubeLimit: Int): Boolean =
-        withContext(Dispatchers.IO) {
-            val today = getTodayDateString()
-            val current = getOrCreateTodayRecordSync(today)
+    suspend fun setTodayLimits(
+        instagramLimit: Int,
+        youtubeLimit: Int,
+        facebookLimit: Int = 30,
+        snapchatLimit: Int = 30
+    ): Boolean = withContext(Dispatchers.IO) {
+        val today = getTodayDateString()
+        val current = getOrCreateTodayRecordSync(today)
 
-            // Lock rule: once limit is set today, it cannot be modified before midnight
-            if (current.limitSetToday) {
-                return@withContext false
-            }
-
-            scrollDao.updateLimitsForToday(
-                date = today,
-                igLimit = instagramLimit.coerceAtLeast(1),
-                ytLimit = youtubeLimit.coerceAtLeast(1)
-            )
-            true
+        // Lock rule: once limit is set today, it cannot be modified before midnight
+        if (current.limitSetToday) {
+            return@withContext false
         }
+
+        scrollDao.updateLimitsForToday(
+            date = today,
+            igLimit = instagramLimit.coerceAtLeast(1),
+            ytLimit = youtubeLimit.coerceAtLeast(1),
+            fbLimit = facebookLimit.coerceAtLeast(1),
+            scLimit = snapchatLimit.coerceAtLeast(1)
+        )
+        true
+    }
 
     fun getLast7DaysRecords(): Flow<List<DailyScrollRecord>> {
         return scrollDao.getRecentRecords(7)
@@ -152,25 +171,30 @@ class ScrollRepository(
                 dateString = dateStr,
                 instagramCount = 0,
                 youtubeCount = 0,
+                facebookCount = 0,
+                snapchatCount = 0,
                 instagramLimit = 30,
-                youtubeLimit = 30
+                youtubeLimit = 30,
+                facebookLimit = 30,
+                snapchatLimit = 30
             )
             records.add(rec)
             calendar.add(Calendar.DAY_OF_YEAR, -1)
         }
 
-        // Streak calculation (days staying under limit)
+        // Streak calculation (days staying under limit across all platforms)
         var streak = 0
-        val allPast = mutableListOf<DailyScrollRecord>()
         val checkCal = Calendar.getInstance()
         checkCal.add(Calendar.DAY_OF_YEAR, -1) // check from yesterday backwards for streak
         for (i in 0 until 60) {
             val dateStr = dateFormat.format(checkCal.time)
             val r = scrollDao.getRecordForDateSync(dateStr)
             if (r != null) {
-                val igExceeded = r.instagramCount > (r.instagramLimit + r.instagramUnlockedBonus)
-                val ytExceeded = r.youtubeCount > (r.youtubeLimit + r.youtubeUnlockedBonus)
-                if (!igExceeded && !ytExceeded) {
+                val igExceeded = r.instagramCount > r.totalInstagramAllowed
+                val ytExceeded = r.youtubeCount > r.totalYoutubeAllowed
+                val fbExceeded = r.facebookCount > r.totalFacebookAllowed
+                val scExceeded = r.snapchatCount > r.totalSnapchatAllowed
+                if (!igExceeded && !ytExceeded && !fbExceeded && !scExceeded) {
                     streak++
                 } else {
                     break
@@ -185,13 +209,17 @@ class ScrollRepository(
         val dailyAverage = if (records.isNotEmpty()) totalLast7Days.toFloat() / records.size else 0f
         val totalIg = records.sumOf { it.instagramCount }
         val totalYt = records.sumOf { it.youtubeCount }
+        val totalFb = records.sumOf { it.facebookCount }
+        val totalSc = records.sumOf { it.snapchatCount }
 
         ScrollStats(
             last7Days = records.reversed(), // oldest to newest for charts
             dailyAverage = dailyAverage,
             currentStreakDays = streak,
             totalInstagram7Days = totalIg,
-            totalYoutube7Days = totalYt
+            totalYoutube7Days = totalYt,
+            totalFacebook7Days = totalFb,
+            totalSnapchat7Days = totalSc
         )
     }
 
@@ -214,5 +242,8 @@ data class ScrollStats(
     val dailyAverage: Float,
     val currentStreakDays: Int,
     val totalInstagram7Days: Int,
-    val totalYoutube7Days: Int
+    val totalYoutube7Days: Int,
+    val totalFacebook7Days: Int = 0,
+    val totalSnapchat7Days: Int = 0
 )
+

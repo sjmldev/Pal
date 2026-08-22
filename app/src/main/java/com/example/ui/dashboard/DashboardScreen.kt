@@ -72,7 +72,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ads.StartAppBanner
 import com.example.data.model.DailyScrollRecord
 import com.example.data.model.ScrollPlatform
+import com.example.ui.components.BrainEnergyMeter
 import com.example.ui.dashboard.components.ScrollHistoryChart
+import com.example.ui.theme.FacebookBlue
 import com.example.ui.theme.InstagramGradientEnd
 import com.example.ui.theme.InstagramGradientMid
 import com.example.ui.theme.InstagramGradientStart
@@ -84,6 +86,7 @@ import com.example.ui.theme.PolishPurpleContainer
 import com.example.ui.theme.PolishPurplePrimary
 import com.example.ui.theme.PolishSecondaryContainer
 import com.example.ui.theme.PolishStreakGold
+import com.example.ui.theme.SnapchatYellow
 import com.example.ui.theme.YouTubeRed
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -236,9 +239,13 @@ fun DashboardScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // 1. Brain / Dopamine Energy Meter (Psychological gamification hero)
             item {
                 Spacer(modifier = Modifier.height(2.dp))
+                BrainEnergyMeter(record = record)
+            }
 
+            item {
                 // Daily Limit Status Lock / Banner
                 if (!record.limitSetToday) {
                     Card(
@@ -276,7 +283,7 @@ fun DashboardScreen(
                                     color = PolishOnPurpleContainer
                                 )
                                 Text(
-                                    text = "Carrying over ${record.instagramLimit} IG / ${record.youtubeLimit} YT limit. Tap to adjust.",
+                                    text = "Tap to customize daily limits for Instagram, YouTube, Facebook & Snapchat.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -304,7 +311,7 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Today's limits locked until 12:00 AM (${record.instagramLimit} Reels / ${record.youtubeLimit} Shorts)",
+                                text = "Today's limits locked until 12:00 AM (${record.instagramLimit} IG / ${record.youtubeLimit} YT / ${record.facebookLimit} FB / ${record.snapchatLimit} SC)",
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -313,12 +320,29 @@ fun DashboardScreen(
                 }
             }
 
-            // Dual Platform Cards (YouTube & Instagram Grid)
+            // Platform Cards Grid - Row 1: Instagram & YouTube
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Instagram Reels Card
+                    Box(modifier = Modifier.weight(1f)) {
+                        PolishPlatformCard(
+                            platform = ScrollPlatform.INSTAGRAM,
+                            count = record.instagramCount,
+                            limit = record.instagramLimit,
+                            bonus = record.instagramUnlockedBonus,
+                            isBlocked = record.isInstagramBlocked,
+                            backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            borderColor = MaterialTheme.colorScheme.outlineVariant,
+                            onUnlockBonusClick = {
+                                val activity = context as? Activity ?: return@PolishPlatformCard
+                                viewModel.unlockExtraScrolls(ScrollPlatform.INSTAGRAM, activity)
+                            }
+                        )
+                    }
+
                     // YouTube Shorts Card
                     Box(modifier = Modifier.weight(1f)) {
                         PolishPlatformCard(
@@ -335,20 +359,45 @@ fun DashboardScreen(
                             }
                         )
                     }
+                }
+            }
 
-                    // Instagram Reels Card
+            // Platform Cards Grid - Row 2: Facebook & Snapchat
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Facebook Reels Card
                     Box(modifier = Modifier.weight(1f)) {
                         PolishPlatformCard(
-                            platform = ScrollPlatform.INSTAGRAM,
-                            count = record.instagramCount,
-                            limit = record.instagramLimit,
-                            bonus = record.instagramUnlockedBonus,
-                            isBlocked = record.isInstagramBlocked,
-                            backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                            borderColor = MaterialTheme.colorScheme.outlineVariant,
+                            platform = ScrollPlatform.FACEBOOK,
+                            count = record.facebookCount,
+                            limit = record.facebookLimit,
+                            bonus = record.facebookUnlockedBonus,
+                            isBlocked = record.isFacebookBlocked,
+                            backgroundColor = FacebookBlue.copy(alpha = 0.08f),
+                            borderColor = FacebookBlue.copy(alpha = 0.25f),
                             onUnlockBonusClick = {
                                 val activity = context as? Activity ?: return@PolishPlatformCard
-                                viewModel.unlockExtraScrolls(ScrollPlatform.INSTAGRAM, activity)
+                                viewModel.unlockExtraScrolls(ScrollPlatform.FACEBOOK, activity)
+                            }
+                        )
+                    }
+
+                    // Snapchat Spotlight Card
+                    Box(modifier = Modifier.weight(1f)) {
+                        PolishPlatformCard(
+                            platform = ScrollPlatform.SNAPCHAT,
+                            count = record.snapchatCount,
+                            limit = record.snapchatLimit,
+                            bonus = record.snapchatUnlockedBonus,
+                            isBlocked = record.isSnapchatBlocked,
+                            backgroundColor = SnapchatYellow.copy(alpha = 0.12f),
+                            borderColor = SnapchatYellow.copy(alpha = 0.4f),
+                            onUnlockBonusClick = {
+                                val activity = context as? Activity ?: return@PolishPlatformCard
+                                viewModel.unlockExtraScrolls(ScrollPlatform.SNAPCHAT, activity)
                             }
                         )
                     }
@@ -366,7 +415,7 @@ fun DashboardScreen(
                         dailyAverage = uiState.stats.dailyAverage
                     )
 
-                    // Primary Action Button: "Set Daily Limit" (matching design HTML pill button)
+                    // Primary Action Button: "Set Daily Limit"
                     Button(
                         onClick = onNavigateToLimits,
                         modifier = Modifier
@@ -399,9 +448,14 @@ fun DashboardScreen(
 
             // Platform Comparison Distribution Card
             item {
-                val totalScrolls7Days = uiState.stats.totalInstagram7Days + uiState.stats.totalYoutube7Days
-                val igPercent = if (totalScrolls7Days > 0) (uiState.stats.totalInstagram7Days.toFloat() / totalScrolls7Days) * 100f else 50f
-                val ytPercent = if (totalScrolls7Days > 0) (uiState.stats.totalYoutube7Days.toFloat() / totalScrolls7Days) * 100f else 50f
+                val totalScrolls7Days = uiState.stats.totalInstagram7Days +
+                        uiState.stats.totalYoutube7Days +
+                        uiState.stats.totalFacebook7Days +
+                        uiState.stats.totalSnapchat7Days
+                val igPercent = if (totalScrolls7Days > 0) (uiState.stats.totalInstagram7Days.toFloat() / totalScrolls7Days) * 100f else 25f
+                val ytPercent = if (totalScrolls7Days > 0) (uiState.stats.totalYoutube7Days.toFloat() / totalScrolls7Days) * 100f else 25f
+                val fbPercent = if (totalScrolls7Days > 0) (uiState.stats.totalFacebook7Days.toFloat() / totalScrolls7Days) * 100f else 25f
+                val scPercent = if (totalScrolls7Days > 0) (uiState.stats.totalSnapchat7Days.toFloat() / totalScrolls7Days) * 100f else 25f
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -415,39 +469,87 @@ fun DashboardScreen(
                         modifier = Modifier.padding(18.dp)
                     ) {
                         Text(
-                            text = "Platform Distribution",
+                            text = "Platform Distribution (7 Days)",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Multi-color progress bar
-                        LinearProgressIndicator(
-                            progress = { igPercent / 100f },
+                        // Multi-segment progress indicator representation
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(10.dp)
-                                .clip(RoundedCornerShape(5.dp)),
-                            color = InstagramGradientMid,
-                            trackColor = YouTubeRed
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                         ) {
-                            Text(
-                                text = "Instagram: ${"%.0f".format(igPercent)}% (${uiState.stats.totalInstagram7Days})",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = InstagramGradientMid
-                            )
-                            Text(
-                                text = "YouTube: ${"%.0f".format(ytPercent)}% (${uiState.stats.totalYoutube7Days})",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = YouTubeRed
-                            )
+                            if (igPercent > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(igPercent.coerceAtLeast(1f))
+                                        .height(10.dp)
+                                        .background(InstagramGradientMid)
+                                )
+                            }
+                            if (ytPercent > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(ytPercent.coerceAtLeast(1f))
+                                        .height(10.dp)
+                                        .background(YouTubeRed)
+                                )
+                            }
+                            if (fbPercent > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(fbPercent.coerceAtLeast(1f))
+                                        .height(10.dp)
+                                        .background(FacebookBlue)
+                                )
+                            }
+                            if (scPercent > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(scPercent.coerceAtLeast(1f))
+                                        .height(10.dp)
+                                        .background(Color(0xFFFFC400))
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "📸 Instagram: ${"%.0f".format(igPercent)}% (${uiState.stats.totalInstagram7Days})",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = InstagramGradientMid
+                                )
+                                Text(
+                                    text = "▶️ YouTube: ${"%.0f".format(ytPercent)}% (${uiState.stats.totalYoutube7Days})",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = YouTubeRed
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "📘 Facebook: ${"%.0f".format(fbPercent)}% (${uiState.stats.totalFacebook7Days})",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = FacebookBlue
+                                )
+                                Text(
+                                    text = "👻 Snapchat: ${"%.0f".format(scPercent)}% (${uiState.stats.totalSnapchat7Days})",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color(0xFFC79500)
+                                )
+                            }
                         }
                     }
                 }
@@ -570,12 +672,15 @@ fun PolishPlatformCard(
     val percent = if (totalAllowed > 0) (count.toFloat() / totalAllowed).coerceIn(0f, 1f) else 0f
     val animatedProgress by animateFloatAsState(targetValue = percent, label = "progress")
 
-    val isInstagram = platform == ScrollPlatform.INSTAGRAM
-
     val statusText = when {
         isBlocked -> "Limit reached"
         percent >= 0.85f -> "Near limit!"
-        else -> if (isInstagram) "Reels today" else "Shorts today"
+        else -> when (platform) {
+            ScrollPlatform.INSTAGRAM -> "Reels today"
+            ScrollPlatform.YOUTUBE -> "Shorts today"
+            ScrollPlatform.FACEBOOK -> "Reels today"
+            ScrollPlatform.SNAPCHAT -> "Snaps today"
+        }
     }
 
     val statusColor = when {
@@ -608,33 +713,65 @@ fun PolishPlatformCard(
                             .background(Color.White),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (isInstagram) {
-                            Box(
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        Brush.linearGradient(
-                                            listOf(
-                                                InstagramGradientStart,
-                                                InstagramGradientMid,
-                                                InstagramGradientEnd
+                        when (platform) {
+                            ScrollPlatform.INSTAGRAM -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    InstagramGradientStart,
+                                                    InstagramGradientMid,
+                                                    InstagramGradientEnd
+                                                )
                                             )
                                         )
+                                )
+                            }
+                            ScrollPlatform.YOUTUBE -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(YouTubeRed)
+                                )
+                            }
+                            ScrollPlatform.FACEBOOK -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(FacebookBlue),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "f",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, fontSize = 11.sp)
                                     )
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(14.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(YouTubeRed)
-                            )
+                                }
+                            }
+                            ScrollPlatform.SNAPCHAT -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFFFC00)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "👻",
+                                        fontSize = 9.sp
+                                    )
+                                }
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isInstagram) "INSTAGRAM" else "YOUTUBE",
+                        text = platform.displayName.uppercase(),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.8.sp,
