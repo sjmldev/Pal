@@ -86,6 +86,11 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     // Debounce redirect to prevent rapid flickering loop
     private var lastRedirectTimestamp: Long = 0L
 
+    // Dedicated Instagram debouncing & layout stabilization engine (strictly between 400ms and 600ms)
+    private val instagramHandler = Handler(Looper.getMainLooper())
+    private var instagramDebounceRunnable: Runnable? = null
+    private val INSTAGRAM_DEBOUNCE_MS = 480L
+
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
@@ -284,9 +289,33 @@ class ReelsPalAccessibilityService : AccessibilityService() {
             // 5. Extract platform-specific stable on-screen video identity using the strategy extractor
             val candidate = extractor.extractIdentity(this, rootNode) ?: return
 
-            // 6. Execute atomic, serialized de-duplication evaluation
-            serviceScope.launch {
-                processVideoTransitionSerialized(platform, candidate)
+            // 6. Dual-validation & Platform-specific debouncing
+            if (platform == ScrollPlatform.INSTAGRAM) {
+                // Instagram-specific debouncing: Meta fires multiple asynchronous layout refresh events out of sync.
+                // Reset pending timer and wait for layout structure to stabilize into a quiet state post-swipe.
+                instagramDebounceRunnable?.let { instagramHandler.removeCallbacks(it) }
+
+                val runnable = Runnable {
+                    try {
+                        val currentRoot = rootInActiveWindow ?: return@Runnable
+                        if (!isInsideShortsOrReels(ScrollPlatform.INSTAGRAM, currentRoot)) return@Runnable
+                        if (isCommentsSectionOpen(ScrollPlatform.INSTAGRAM, currentRoot)) return@Runnable
+
+                        val stabilizedCandidate = instagramExtractor.extractIdentity(this@ReelsPalAccessibilityService, currentRoot) ?: return@Runnable
+                        serviceScope.launch {
+                            processVideoTransitionSerialized(ScrollPlatform.INSTAGRAM, stabilizedCandidate)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error during stabilized Instagram dispatch: ${e.message}", e)
+                    }
+                }
+                instagramDebounceRunnable = runnable
+                instagramHandler.postDelayed(runnable, INSTAGRAM_DEBOUNCE_MS)
+            } else {
+                // Immediate serialized processing for YouTube, Facebook, and Snapchat
+                serviceScope.launch {
+                    processVideoTransitionSerialized(platform, candidate)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling accessibility event for $platform: ${e.message}", e)
@@ -491,10 +520,11 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     private fun isInsideShortsOrReels(platform: ScrollPlatform, rootNode: AccessibilityNodeInfo): Boolean {
         return when (platform) {
             ScrollPlatform.INSTAGRAM -> {
-                findNodeByPredicate(rootNode, maxDepth = 14) { node ->
+                findNodeByPredicate(rootNode, maxDepth = 20) { node ->
                     val resId = node.viewIdResourceName?.lowercase() ?: ""
                     val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                     val text = node.text?.toString()?.lowercase() ?: ""
+                    val className = node.className?.toString()?.lowercase() ?: ""
 
                     resId.contains("clips_viewer") ||
                             resId.contains("reel_viewer") ||
@@ -502,13 +532,17 @@ class ReelsPalAccessibilityService : AccessibilityService() {
                             resId.contains("reel_recycler") ||
                             resId.contains("clips_root") ||
                             resId.contains("clips_item_root") ||
+                            resId.contains("clips_viewpager") ||
+                            className.contains("viewpager2") ||
                             (resId.contains("like_button") && resId.contains("clips")) ||
                             desc.contains("reel by") ||
                             desc.contains("audio used in reel") ||
                             (resId.contains("video_container") && (desc.contains("reel") || text.contains("reel"))) ||
                             text.equals("reels", ignoreCase = true) ||
                             resId.contains("clips_author") ||
-                            resId.contains("reel_tag")
+                            resId.contains("reel_tag") ||
+                            desc.contains("original audio") ||
+                            resId.contains("clips_audio")
                 }
             }
             ScrollPlatform.YOUTUBE -> {
