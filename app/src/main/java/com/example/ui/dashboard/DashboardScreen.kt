@@ -253,17 +253,17 @@ fun DashboardScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = PolishPurpleContainer.copy(alpha = 0.55f)
+                            containerColor = PolishPurpleContainer.copy(alpha = 0.85f)
                         ),
-                        border = BorderStroke(1.dp, PolishPurplePrimary.copy(alpha = 0.3f))
+                        border = BorderStroke(1.5.dp, PolishPurplePrimary)
                     ) {
                         Row(
-                            modifier = Modifier.padding(14.dp),
+                            modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(40.dp)
                                     .clip(CircleShape)
                                     .background(PolishPurplePrimary),
                                 contentAlignment = Alignment.Center
@@ -272,20 +272,35 @@ fun DashboardScreen(
                                     imageVector = Icons.Default.Tune,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "⚡ Activate Today's Limits",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = PolishOnPurpleContainer
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = PolishPurplePrimary,
+                                        contentColor = Color.White
+                                    ) {
+                                        Text(
+                                            text = "AD REQ",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Set Today's Custom Limits",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = PolishOnPurpleContainer
-                                )
-                                Text(
-                                    text = "Tap to customize daily limits for Instagram, YouTube, Facebook & Snapchat.",
+                                    text = "Tap here to watch sponsor ad & unlock social apps for today.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = PolishOnPurpleContainer.copy(alpha = 0.85f)
                                 )
                             }
                         }

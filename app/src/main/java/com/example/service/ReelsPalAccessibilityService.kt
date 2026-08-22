@@ -67,6 +67,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
     private var inMemoryFbLimit: Int = 30
     private var inMemoryScLimit: Int = 30
     private var inMemoryDateString: String = ""
+    private var inMemoryLimitSetToday: Boolean = false
 
     // --- HARD DE-DUPLICATION GUARANTEE ENGINE ---
     private val deduplicationMutex = Mutex()
@@ -98,6 +99,7 @@ class ReelsPalAccessibilityService : AccessibilityService() {
             repository.getTodayRecordFlow().collect { record ->
                 deduplicationMutex.withLock {
                     currentRecord = record
+                    inMemoryLimitSetToday = record.limitSetToday
                     if (inMemoryDateString != record.dateString) {
                         inMemoryDateString = record.dateString
                         inMemoryIgCount = record.instagramCount
@@ -221,11 +223,22 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         try {
             val rootNode = rootInActiveWindow ?: return
 
-            val (isBlocked, count, limit) = synchronized(this) {
+            val (isBlocked, isLimitSet, count, limit) = synchronized(this) {
                 val currentCount = getInMemoryCount(platform)
                 val currentLimit = getInMemoryLimit(platform)
                 val blocked = currentCount >= currentLimit
-                Triple(blocked, currentCount, currentLimit)
+                val limitSet = inMemoryLimitSetToday
+                QuadrupleState(blocked, limitSet, currentCount, currentLimit)
+            }
+
+            // 0. MANDATORY DAILY LIMIT & AD-UNLOCK GATE:
+            // If user has not confirmed today's limits via sponsor ad yet, intercept immediately upon opening Reels/Shorts!
+            if (!isLimitSet && preferences.hasCompletedOnboarding) {
+                val isInsideTarget = isInsideShortsOrReels(platform, rootNode)
+                if (isInsideTarget || event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                    enforceUnsetLimitAndRedirect(platform)
+                    return
+                }
             }
 
             // 1. Check if the app is currently BLOCKED
@@ -600,6 +613,28 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun enforceUnsetLimitAndRedirect(platform: ScrollPlatform) {
+        val now = System.currentTimeMillis()
+        if (now - lastRedirectTimestamp < 1500) return
+        lastRedirectTimestamp = now
+
+        hudManager.hideHud()
+        performGlobalAction(GLOBAL_ACTION_HOME)
+
+        handler.postDelayed({
+            try {
+                val intent = Intent(this, BlockedActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra(BlockedActivity.EXTRA_PLATFORM, platform.name)
+                    putExtra(BlockedActivity.EXTRA_UNSET_LIMIT, true)
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error opening BlockedActivity for unset limit: ${e.message}", e)
+            }
+        }, 300)
+    }
+
     private fun enforceBlockAndRedirect(platform: ScrollPlatform) {
         val now = System.currentTimeMillis()
         if (now - lastRedirectTimestamp < 1500) return
@@ -670,3 +705,10 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         fun isServiceRunning(): Boolean = instance != null
     }
 }
+
+private data class QuadrupleState(
+    val isBlocked: Boolean,
+    val isLimitSet: Boolean,
+    val count: Int,
+    val limit: Int
+)

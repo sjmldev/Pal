@@ -71,6 +71,7 @@ class BlockedActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val platformName = intent.getStringExtra(EXTRA_PLATFORM) ?: ScrollPlatform.INSTAGRAM.name
+        val isUnsetLimit = intent.getBooleanExtra(EXTRA_UNSET_LIMIT, false)
         val platform = try {
             ScrollPlatform.valueOf(platformName)
         } catch (e: Exception) {
@@ -81,12 +82,21 @@ class BlockedActivity : ComponentActivity() {
             MyApplicationTheme {
                 BlockedScreenContent(
                     platform = platform,
+                    isUnsetLimit = isUnsetLimit,
                     onUnlockSuccess = {
                         Toast.makeText(
                             this,
                             "🎉 +10 Extra Scrolls Unlocked for ${platform.displayName}!",
                             Toast.LENGTH_LONG
                         ).show()
+                        finish()
+                    },
+                    onOpenLimitSetup = {
+                        val mainIntent = Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            putExtra(MainActivity.EXTRA_OPEN_LIMIT_SETUP, true)
+                        }
+                        startActivity(mainIntent)
                         finish()
                     },
                     onGoToDashboard = {
@@ -112,13 +122,16 @@ class BlockedActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_PLATFORM = "extra_platform"
+        const val EXTRA_UNSET_LIMIT = "extra_unset_limit"
     }
 }
 
 @Composable
 fun BlockedScreenContent(
     platform: ScrollPlatform,
+    isUnsetLimit: Boolean = false,
     onUnlockSuccess: () -> Unit,
+    onOpenLimitSetup: () -> Unit,
     onGoToDashboard: () -> Unit,
     onTakeBreak: () -> Unit
 ) {
@@ -150,162 +163,285 @@ fun BlockedScreenContent(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Shield / Blocked Icon badge
-                Box(
-                    modifier = Modifier
-                        .size(88.dp)
-                        .clip(CircleShape)
-                        .background(PolishError.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Block,
-                        contentDescription = "Daily Limit Reached",
-                        tint = PolishError,
-                        modifier = Modifier.size(48.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Text(
-                    text = "Daily Limit Reached!",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.5).sp
-                    ),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "You have completed your daily scroll goal for ${platform.displayName}. Great job taking control of your screen time!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Info Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    border = BorderStroke(1.dp, PolishCardBorder)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                if (isUnsetLimit) {
+                    // Lock Badge for Unset Limit Protocol
+                    Box(
+                        modifier = Modifier
+                            .size(88.dp)
+                            .clip(CircleShape)
+                            .background(PolishPurplePrimary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "⏰ Limit Resets at 12:00 AM Midnight",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = PolishPurplePrimary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Need to view an important clip? You can watch a sponsor ad to unlock exactly 10 bonus scrolls.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
+                            text = "🔒",
+                            fontSize = 42.sp
                         )
                     }
-                }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                // Watch Ad to Unlock +10 Button
-                Button(
-                    onClick = {
-                        val activity = context as? Activity ?: return@Button
-                        isUnlocking = true
-                        AdManager.showRewardedAdForExtraScrolls(activity) { granted ->
-                            coroutineScope.launch {
-                                repository.unlockExtraScrolls(platform, 10)
-                                isUnlocking = false
-                                onUnlockSuccess()
-                            }
+                    Text(
+                        text = "Daily Limit Not Activated!",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp
+                        ),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "To access ${platform.displayName} today, please set your daily scroll limits in Reels Pal and watch a sponsor ad to lock in protection.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Info Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        border = BorderStroke(1.dp, PolishCardBorder)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "🛡️ Daily Ad-Unlock Protocol Active",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = PolishPurplePrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Locking in your daily goals requires viewing a sponsor ad. Once activated, you can scroll freely within your budget.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
                         }
-                    },
-                    enabled = !isUnlocking,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .testTag("unlock_10_scrolls_button"),
-                    shape = RoundedCornerShape(26.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = PolishPurplePrimary,
-                        contentColor = Color.White
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Primary Action: Open Limit Setup to Watch Ad
+                    Button(
+                        onClick = onOpenLimitSetup,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("set_daily_limits_ad_button"),
+                        shape = RoundedCornerShape(26.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PolishPurplePrimary,
+                            contentColor = Color.White
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "⚡ Set Limits & Watch Ad to Unlock",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Take a break / Home button
+                    OutlinedButton(
+                        onClick = onTakeBreak,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("unset_take_a_break_button"),
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Home,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Exit to Home (Stay Focused)",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+                } else {
+                    // Shield / Blocked Icon badge
+                    Box(
+                        modifier = Modifier
+                            .size(88.dp)
+                            .clip(CircleShape)
+                            .background(PolishError.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Block,
+                            contentDescription = "Daily Limit Reached",
+                            tint = PolishError,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
                     Text(
-                        text = if (isUnlocking) "Loading Ad..." else "Watch Ad for +10 Extra Scrolls",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        text = "Daily Limit Reached!",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp
+                        ),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        textAlign = TextAlign.Center
                     )
-                }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                // Dashboard Button
-                OutlinedButton(
-                    onClick = onGoToDashboard,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("go_to_dashboard_button"),
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Dashboard,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Open Dashboard & Stats",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        text = "You have completed your daily scroll goal for ${platform.displayName}. Great job taking control of your screen time!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
                     )
-                }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
 
-                // Take a break / Home button
-                OutlinedButton(
-                    onClick = onTakeBreak,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("take_a_break_button"),
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Take a Break (Go Home)",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                    )
+                    // Info Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        border = BorderStroke(1.dp, PolishCardBorder)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "⏰ Limit Resets at 12:00 AM Midnight",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = PolishPurplePrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Need to view an important clip? You can watch a sponsor ad to unlock exactly 10 bonus scrolls.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Watch Ad to Unlock +10 Button
+                    Button(
+                        onClick = {
+                            val activity = context as? Activity ?: return@Button
+                            isUnlocking = true
+                            AdManager.showRewardedAdForExtraScrolls(activity) { granted ->
+                                coroutineScope.launch {
+                                    repository.unlockExtraScrolls(platform, 10)
+                                    isUnlocking = false
+                                    onUnlockSuccess()
+                                }
+                            }
+                        },
+                        enabled = !isUnlocking,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("unlock_10_scrolls_button"),
+                        shape = RoundedCornerShape(26.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PolishPurplePrimary,
+                            contentColor = Color.White
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isUnlocking) "Loading Ad..." else "Watch Ad for +10 Extra Scrolls",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Dashboard Button
+                    OutlinedButton(
+                        onClick = onGoToDashboard,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("go_to_dashboard_button"),
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Dashboard,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Open Dashboard & Stats",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Take a break / Home button
+                    OutlinedButton(
+                        onClick = onTakeBreak,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("take_a_break_button"),
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Home,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Take a Break (Go Home)",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
                 }
             }
         }

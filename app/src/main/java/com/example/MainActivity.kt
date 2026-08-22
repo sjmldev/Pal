@@ -25,23 +25,31 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val openLimitSetup = intent?.getBooleanExtra(EXTRA_OPEN_LIMIT_SETUP, false) == true
+
         setContent {
             MyApplicationTheme {
-                ReelsPalApp()
+                ReelsPalApp(openLimitSetupInitial = openLimitSetup)
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_LIMIT_SETUP = "extra_open_limit_setup"
     }
 }
 
 @Composable
-fun ReelsPalApp() {
+fun ReelsPalApp(openLimitSetupInitial: Boolean = false) {
     val navController = rememberNavController()
     val preferences = remember { AppPreferences.getInstance(navController.context) }
 
-    val startDestination = if (preferences.hasCompletedOnboarding) {
-        Screen.Dashboard.route
-    } else {
+    val startDestination = if (!preferences.hasCompletedOnboarding) {
         Screen.Permissions.route
+    } else if (openLimitSetupInitial) {
+        Screen.LimitSetup.route
+    } else {
+        Screen.Dashboard.route
     }
 
     NavHost(
