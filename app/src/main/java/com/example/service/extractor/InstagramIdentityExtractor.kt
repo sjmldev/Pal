@@ -176,9 +176,14 @@ class InstagramIdentityExtractor : VideoIdentityExtractor {
         visitor: (AccessibilityNodeInfo) -> Unit
     ) {
         if (node == null || depth > maxDepth) return
-        visitor(node)
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
+        try {
+            visitor(node)
+        } catch (t: Throwable) {
+            // Ignore node inspection exceptions during dynamic UI scrolling
+        }
+        val count = try { node.childCount } catch (t: Throwable) { 0 }
+        for (i in 0 until count) {
+            val child = try { node.getChild(i) } catch (t: Throwable) { null } ?: continue
             traverseNodes(child, depth + 1, maxDepth, visitor)
         }
     }

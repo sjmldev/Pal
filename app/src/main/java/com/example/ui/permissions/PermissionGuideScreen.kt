@@ -176,6 +176,16 @@ fun PermissionGuideScreen(
                 )
             }
 
+            // Step 5
+            item {
+                GuideStepCard(
+                    stepNumber = "5",
+                    title = "Set Battery to 'Unrestricted' (Keep Alive)",
+                    description = "In Reels Pal App Info → Tap 'Battery' → Choose 'Unrestricted' or 'No Restrictions'. On Xiaomi/Realme/Oppo/Vivo, also enable 'Autostart' so Reels Pal is never closed in the background.",
+                    icon = Icons.Default.Security
+                )
+            }
+
             item {
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(

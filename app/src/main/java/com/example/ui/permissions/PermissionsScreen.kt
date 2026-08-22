@@ -86,10 +86,12 @@ fun PermissionsScreen(
     var isAccessibilityGranted by remember { mutableStateOf(false) }
     var isOverlayGranted by remember { mutableStateOf(false) }
     var isNotificationGranted by remember { mutableStateOf(false) }
+    var isBatteryOptimizationIgnored by remember { mutableStateOf(false) }
 
     fun refreshPermissions() {
         isAccessibilityGranted = checkAccessibilityPermission(context)
         isOverlayGranted = Settings.canDrawOverlays(context)
+        isBatteryOptimizationIgnored = com.example.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)
         isNotificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             NotificationManagerCompat.from(context).areNotificationsEnabled()
         } else {
@@ -272,6 +274,21 @@ fun PermissionsScreen(
                                 e.printStackTrace()
                             }
                         }
+                    }
+                )
+            }
+
+            // 4. Background Keep-Alive (Battery Optimization)
+            item {
+                PermissionItemCard(
+                    title = "4. Background Protection (Crucial)",
+                    description = "Prevents Android or phone cleaners from killing Reels Pal in the background while using Instagram, YouTube, or Snapchat.",
+                    icon = Icons.Default.Shield,
+                    isGranted = isBatteryOptimizationIgnored,
+                    isRequired = false,
+                    actionLabel = "Allow Background Run",
+                    onActionClick = {
+                        com.example.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
                     }
                 )
             }

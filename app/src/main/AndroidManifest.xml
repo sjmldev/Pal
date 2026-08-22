@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissions for Overlay, Notifications, Internet, and Ads -->
+    <!-- Permissions for Overlay, Notifications, Internet, Ads, and Background Protection -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".ReelsPalApplication"
@@ -50,6 +52,7 @@
             android:name=".service.ReelsPalAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true"
+            android:stopWithTask="false"
             android:label="@string/accessibility_service_label">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -59,10 +62,11 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Foreground Service for HUD Overlay -->
+        <!-- Foreground Service for HUD Overlay & Background Keep-Alive -->
         <service
             android:name=".service.FloatingHudService"
             android:foregroundServiceType="specialUse"
+            android:stopWithTask="false"
             android:exported="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

@@ -57,11 +57,13 @@ class FloatingHudService : Service() {
         )
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Reels Pal Active")
-            .setContentText("Monitoring Reels & Shorts scroll limits")
+            .setContentTitle("Reels Pal Active & Protected")
+            .setContentText("Monitoring Reels & Shorts scroll limits in background")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 

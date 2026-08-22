@@ -166,6 +166,13 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         }
         serviceInfo = info
         Log.d(TAG, "ReelsPal Accessibility Service connected for Instagram, YouTube, Facebook, Snapchat")
+
+        // Start Foreground keep-alive service to prevent Android LMK process termination
+        try {
+            FloatingHudService.start(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting foreground service: ${e.message}", e)
+        }
     }
 
     /**
@@ -671,10 +678,15 @@ class ReelsPalAccessibilityService : AccessibilityService() {
         predicate: (AccessibilityNodeInfo) -> Boolean
     ): Boolean {
         if (node == null || depth > maxDepth) return false
-        if (predicate(node)) return true
+        try {
+            if (predicate(node)) return true
+        } catch (t: Throwable) {
+            // Ignore node inspection exceptions on dynamic view trees
+        }
 
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
+        val childCount = try { node.childCount } catch (t: Throwable) { 0 }
+        for (i in 0 until childCount) {
+            val child = try { node.getChild(i) } catch (t: Throwable) { null } ?: continue
             if (findNodeByPredicate(child, depth + 1, maxDepth, predicate)) {
                 return true
             }
