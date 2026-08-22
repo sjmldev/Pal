@@ -24,7 +24,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -93,6 +95,7 @@ import com.example.ui.theme.YouTubeRed
 @Composable
 fun DashboardScreen(
     onNavigateToLimits: () -> Unit,
+    onNavigateToBattles: () -> Unit = {},
     onNavigateToSettings: () -> Unit,
     onNavigateToFeedback: () -> Unit,
     viewModel: DashboardViewModel = viewModel()
@@ -196,6 +199,16 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = onNavigateToBattles,
+                        modifier = Modifier.testTag("dashboard_battles_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.EmojiEvents,
+                            contentDescription = "Scroll Battles",
+                            tint = PolishStreakGold
+                        )
+                    }
                     IconButton(
                         onClick = { viewModel.refreshData() },
                         modifier = Modifier.testTag("refresh_dashboard_button")
@@ -331,6 +344,83 @@ fun DashboardScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    }
+                }
+            }
+
+            // Social Scroll Battles (Social Accountability Mode)
+            item {
+                Card(
+                    onClick = onNavigateToBattles,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dashboard_social_battles_banner"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, PolishStreakGold.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(PolishStreakGold.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = "⚔️", fontSize = 22.sp)
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Scroll Battles",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = PolishStreakGold.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = "SOCIAL",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 9.sp
+                                            ),
+                                            color = PolishStreakGold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "Compete with friends to stay under daily limits!",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.EmojiEvents,
+                            contentDescription = "Open Battles",
+                            tint = PolishStreakGold,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                 }
             }

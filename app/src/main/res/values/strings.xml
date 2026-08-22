@@ -12,6 +12,7 @@
     <string name="notification_channel_hud_desc">Shows background service status for live scroll counter</string>
     
     <!-- Support & Links -->
+    <string name="widget_description">Live daily Reels &amp; Shorts scroll counter and brain energy tracker.</string>
     <string name="support_email">stapearnsupport@gmail.com</string>
     <string name="developer_instagram_url">https://www.instagram.com/shajamal.live</string>
 </resources>

@@ -6,6 +6,7 @@ import com.example.data.local.ScrollDao
 import com.example.data.model.DailyScrollRecord
 import com.example.data.model.ScrollEventLog
 import com.example.data.model.ScrollPlatform
+import com.example.receiver.ReelsPalWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -18,6 +19,7 @@ import java.util.Date
 import java.util.Locale
 
 class ScrollRepository(
+    private val context: Context,
     private val scrollDao: ScrollDao
 ) {
 
@@ -106,6 +108,9 @@ class ScrollRepository(
                 )
             )
 
+            // Live refresh all Home Screen Widgets
+            ReelsPalWidgetProvider.updateAllWidgets(context)
+
             updatedRecord
         }
 
@@ -121,7 +126,9 @@ class ScrollRepository(
                 ScrollPlatform.SNAPCHAT -> scrollDao.addSnapchatBonus(today, amount)
             }
 
-            scrollDao.getRecordForDateSync(today) ?: getOrCreateTodayRecordSync(today)
+            val result = scrollDao.getRecordForDateSync(today) ?: getOrCreateTodayRecordSync(today)
+            ReelsPalWidgetProvider.updateAllWidgets(context)
+            result
         }
 
     suspend fun setTodayLimits(
@@ -145,6 +152,7 @@ class ScrollRepository(
             fbLimit = facebookLimit.coerceAtLeast(1),
             scLimit = snapchatLimit.coerceAtLeast(1)
         )
+        ReelsPalWidgetProvider.updateAllWidgets(context)
         true
     }
 
@@ -229,8 +237,10 @@ class ScrollRepository(
 
         fun getInstance(context: Context): ScrollRepository {
             return INSTANCE ?: synchronized(this) {
+                val appCtx = context.applicationContext
                 INSTANCE ?: ScrollRepository(
-                    AppDatabase.getDatabase(context).scrollDao()
+                    appCtx,
+                    AppDatabase.getDatabase(appCtx).scrollDao()
                 ).also { INSTANCE = it }
             }
         }

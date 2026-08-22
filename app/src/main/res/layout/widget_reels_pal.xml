@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_widget_card"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Top Header Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_emoji"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🧠"
+            android:textSize="20sp" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reels Pal"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_status_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Daily Focus Goal"
+                android:textColor="#B3FFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_energy_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_widget_badge"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:text="100% ⚡"
+            android:textColor="#FF00E5FF"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Center Big Metric -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_total_scrolls_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 / 60"
+                android:textColor="#FFFFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_remaining_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="60 scrolls remaining"
+                android:textColor="#80FFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Platform Micro Badges -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_ig_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎬 IG: 0/30"
+                android:textColor="#E0FFFFFF"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_yt_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="▶️ YT: 0/30"
+                android:textColor="#E0FFFFFF"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Bottom Progress Track -->
+    <ProgressBar
+        android:id="@+id/widget_progress_bar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="6dp"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#FF7C4DFF" />
+</LinearLayout>

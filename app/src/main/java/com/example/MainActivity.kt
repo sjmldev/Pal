@@ -10,6 +10,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.data.preferences.AppPreferences
+import com.example.ui.battles.SocialBattlesScreen
 import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.feedback.FeedbackScreen
 import com.example.ui.limits.LimitSetupScreen
@@ -99,11 +100,23 @@ fun ReelsPalApp(openLimitSetupInitial: Boolean = false) {
                 onNavigateToLimits = {
                     navController.navigate(Screen.LimitSetup.route)
                 },
+                onNavigateToBattles = {
+                    navController.navigate(Screen.SocialBattles.route)
+                },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
                 },
                 onNavigateToFeedback = {
                     navController.navigate(Screen.Feedback.route)
+                }
+            )
+        }
+
+        // Social Scroll Battles (Social Mode)
+        composable(Screen.SocialBattles.route) {
+            SocialBattlesScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }
